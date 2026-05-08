@@ -1,0 +1,64 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700&display=swap');
+
+@theme {
+  --font-orbitron: "Orbitron", sans-serif;
+  --font-inter: "Inter", sans-serif;
+  
+  --color-neon-blue: #00D1FF;
+  --color-neon-green: #39FF14;
+  --color-deep-blue: #0A192F;
+  --color-glass: rgba(255, 255, 255, 0.05);
+
+  --animate-spin-slow: spin 3s linear infinite;
+}
+
+@layer base {
+  body {
+    @apply bg-deep-blue text-white font-inter;
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply bg-glass backdrop-blur-md border border-white/10 rounded-2xl;
+  }
+  
+  .neon-border {
+    @apply border border-neon-blue/50 shadow-[0_0_10px_rgba(0,209,255,0.3)];
+  }
+  
+  .neon-button {
+    @apply bg-neon-green text-black font-bold py-3 px-6 rounded-lg transition-all duration-300 
+           hover:shadow-[0_0_20px_rgba(57,255,20,0.6)] hover:scale-105 active:scale-95;
+  }
+  
+  .neon-text {
+    @apply text-neon-blue drop-shadow-[0_0_5px_rgba(0,209,255,0.5)];
+  }
+}
+
+@keyframes scan {
+  0% { top: 0%; }
+  100% { top: 100%; }
+}
+
+.laser-scan {
+  @apply absolute left-0 w-full h-1 bg-neon-blue shadow-[0_0_15px_#00D1FF] z-10;
+  animation: scan 2s linear infinite;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 209, 255, 0.2);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 209, 255, 0.4);
+}

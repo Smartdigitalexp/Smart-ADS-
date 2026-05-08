@@ -1,0 +1,70 @@
+{
+  "entities": {
+    "HistoryItem": {
+      "title": "History Item",
+      "description": "A record of a generated ad campaign",
+      "type": "object",
+      "properties": {
+        "userEmail": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "campaign": { "$ref": "#/entities/CampaignData" },
+        "results": {
+          "type": "array",
+          "items": { "$ref": "#/entities/AdResult" }
+        }
+      },
+      "required": ["userEmail", "timestamp", "campaign", "results"]
+    },
+    "CampaignData": {
+      "title": "Campaign Data",
+      "type": "object",
+      "properties": {
+        "productName": { "type": "string" },
+        "objective": { "type": "string" },
+        "format": { "type": "string" },
+        "aspectRatio": { "type": "string" },
+        "creativeConcept": { "type": "string" },
+        "audience": { "type": "string" }
+      }
+    },
+    "AdResult": {
+      "title": "Ad Result",
+      "type": "object",
+      "properties": {
+        "performanceScore": { "type": "number" },
+        "analysis": { "type": "string" },
+        "generatedImageUrl": { "type": "string" },
+        "captions": {
+          "type": "object",
+          "properties": {
+            "aida": { "type": "string" },
+            "storytelling": { "type": "string" },
+            "urgency": { "type": "string" }
+          }
+        }
+      }
+    },
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "User account information",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "website": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "history/{historyId}": {
+      "schema": "HistoryItem",
+      "description": "Collection of generated ad histories"
+    },
+    "users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile data"
+    }
+  }
+}

@@ -4,6 +4,7 @@ import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import admin from "firebase-admin";
+import { getFirestore } from "firebase-admin/firestore";
 import fs from "fs";
 
 console.log("Starting server entry point...");
@@ -24,28 +25,49 @@ console.log("Initializing Firebase Admin for project:", firebaseConfig.projectId
 
 if (!admin.apps.length) {
   try {
-    admin.initializeApp({
-      projectId: firebaseConfig.projectId,
-    });
-    console.log("Firebase Admin initialized successfully.");
+    // If we're in a Google Cloud environment (like AI Studio), 
+    // it's often better to initialize without explicit config to use ADC.
+    // We'll fall back to explicit config if needed.
+    if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.K_SERVICE) {
+      admin.initializeApp();
+      console.log("Firebase Admin initialized via default credentials.");
+    } else {
+      admin.initializeApp({
+        projectId: firebaseConfig.projectId,
+      });
+      console.log("Firebase Admin initialized with explicit projectId.");
+    }
   } catch (error) {
     console.error("Firebase Admin Init Error:", error);
+    // Absolute fallback
+    if (!admin.apps.length) {
+      admin.initializeApp({
+        projectId: firebaseConfig.projectId,
+      });
+    }
   }
 }
 
 let db: admin.firestore.Firestore;
 try {
-  const dbId = firebaseConfig.firestoreDatabaseId;
+  const dbId = (firebaseConfig.firestoreDatabaseId || "").trim();
+  
   if (dbId && dbId !== "(default)") {
-    console.log("Attempting to use specific database:", dbId);
-    db = admin.firestore(dbId); // Correct way in modern firebase-admin
+    console.log("Using specific Firestore database ID:", dbId);
+    // Try to get it without explicit app first, which uses the default app
+    db = getFirestore(dbId);
   } else {
-    db = admin.firestore();
+    console.log("Using default Firestore database.");
+    db = getFirestore();
   }
-  console.log("Firestore Admin instance initialized.");
+  
+  // Log more details to help debug PERMISSION_DENIED
+  const actualDbId = (db as any)._databaseId || (db as any).databaseId || "(default)";
+  const settings = (db as any)._settings || {};
+  console.log(`Firestore Admin instance ready. Database: ${actualDbId} (Project: ${settings.projectId || "default"})`);
 } catch (e) {
-  console.warn("Falling back to default Firestore database because:", e);
-  db = admin.firestore();
+  console.error("FATAL: Failed to initialize Firestore Admin Instance:", e);
+  throw e;
 }
 
 async function startServer() {

@@ -484,8 +484,8 @@ export default function App() {
       });
       
       if (res.success) {
-        setChatNotification('¡Éxito! Campaña publicada correctamente en Meta Ads.');
-        alert(res.message);
+        setChatNotification(`¡Éxito! Campaña publicada correctamente. ID de Campaña: ${res.campaignId}`);
+        alert(`${res.message}\n\nID de Campaña: ${res.campaignId}\n\nPuedes verla en tu Administrador de Anuncios: ${res.metaLink}`);
         setShowPublishModal(false);
       } else {
         // Special check for WhatsApp notice from backend

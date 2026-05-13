@@ -484,6 +484,14 @@ async function startServer() {
       }
 
       // --- Step 2: Create Campaign ---
+      let budgetMultiplier = 100;
+      if (currency === 'COP' || currency === 'CLP' || currency === 'JPY') {
+        budgetMultiplier = 1;
+      }
+      
+      const rawBudget = parseFloat(budget);
+      const budgetValue = Math.round(rawBudget * budgetMultiplier); 
+
       const campaign = await callGraph(`${fullAdAccountId}/campaigns`, 'POST', {
         name: `Smart Ads: ${productName} - ${objective} (${new Date().toLocaleDateString()})`,
         objective: metaObjective,
@@ -494,9 +502,6 @@ async function startServer() {
       const campaignId = campaign.id;
 
       // --- Step 3: Create Ad Set ---
-      const rawBudget = parseFloat(budget);
-      const budgetValue = Math.round(rawBudget * 100); 
-
       const adSetData: any = {
         name: `Smart AdSet: ${objective} Targeting`,
         campaign_id: campaignId,
@@ -582,8 +587,11 @@ async function startServer() {
         message: "¡Campaña publicada exitosamente! Se ha creado en modo PAUSADO.",
         campaignId,
         adSetId,
-        adId: ad.id
+        adId: ad.id,
+        metaLink: `https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${fullAdAccountId.replace('act_', '')}`
       });
+      
+      console.log(`Publication COMPLETE. Campaign ID: ${campaignId}, AdSet ID: ${adSetId}, Ad ID: ${ad.id}`);
       
     } catch (error: any) {
       console.error("Critical Publish Error:", error);

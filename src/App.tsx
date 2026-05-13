@@ -136,6 +136,7 @@ export default function App() {
     audience: '',
     videoDuration: 5,
     budget: '5.00',
+    currency: 'USD',
     destinationUrl: '',
     pixelId: '',
     whatsappNumber: '',
@@ -2657,18 +2658,31 @@ export default function App() {
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div className="space-y-1.5">
                             <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Presupuesto Diario</label>
-                            <div className="relative">
-                              <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-neon-blue" size={14} />
-                              <input 
-                                type="number" 
-                                value={campaign.budget}
-                                onChange={(e) => setCampaign({...campaign, budget: e.target.value})}
-                                placeholder="5.00"
-                                className="w-full bg-black/40 border border-white/10 rounded-lg p-3 pl-9 text-[10px] text-white focus:border-neon-blue/50 outline-none"
-                              />
+                            <div className="flex gap-2">
+                              <div className="relative flex-1">
+                                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-neon-blue" size={14} />
+                                <input 
+                                  type="number" 
+                                  value={campaign.budget}
+                                  onChange={(e) => setCampaign({...campaign, budget: e.target.value})}
+                                  placeholder="5.00"
+                                  className="w-full bg-black/40 border border-white/10 rounded-lg p-3 pl-9 text-[10px] text-white focus:border-neon-blue/50 outline-none"
+                                />
+                              </div>
+                              <select 
+                                value={campaign.currency || 'USD'}
+                                onChange={(e) => setCampaign({...campaign, currency: e.target.value})}
+                                className="w-24 bg-black/40 border border-white/10 rounded-lg p-3 text-[10px] text-white focus:border-neon-blue/50 outline-none font-bold"
+                              >
+                                <option value="USD">USD</option>
+                                <option value="MXN">MXN</option>
+                                <option value="COP">COP</option>
+                                <option value="CLP">CLP</option>
+                                <option value="EUR">EUR</option>
+                              </select>
                             </div>
                           </div>
 

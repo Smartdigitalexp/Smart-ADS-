@@ -632,14 +632,17 @@ export default function App() {
     }
   };
 
-  const handleImportMetaData = async () => {
+  const [analysisReport, setAnalysisReport] = useState<AnalysisReport | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  const fetchMetaDataResult = async (): Promise<CSVRow[] | null> => {
     if (!metaToken || !selectedAdAccount) {
       setChatNotification("Por favor, conecta tu cuenta de Meta y selecciona una cuenta publicitaria.");
-      return;
+      return null;
     }
 
     setIsImportingMeta(true);
-    setChatNotification("Importando datos desde Meta...");
+    setChatNotification("Sincronizando datos desde Meta para el análisis...");
 
     try {
       let level: 'campaign' | 'adset' | 'ad' = 'ad';
@@ -648,7 +651,7 @@ export default function App() {
       if (selectedAnalysisIds.adId) {
         filtering = JSON.stringify([{ field: 'ad.id', operator: 'IN', value: [selectedAnalysisIds.adId] }]);
       } else if (selectedAnalysisIds.adSetId) {
-        level = 'ad'; // Still get ads but filtered by adset if possible, or just get adset level
+        level = 'ad';
         filtering = JSON.stringify([{ field: 'adset.id', operator: 'IN', value: [selectedAnalysisIds.adSetId] }]);
       } else if (selectedAnalysisIds.campaignId) {
         level = 'ad';
@@ -677,38 +680,62 @@ export default function App() {
           cpm: parseFloat(item.cpm || '0'),
           gasto_total: parseFloat(item.spend || '0')
         }));
-
-        setCsvData(formattedData);
-        setChatNotification(`Se importaron ${formattedData.length} registros desde Meta Ads.`);
-      } else {
-        setChatNotification("No se encontraron datos en el periodo seleccionado.");
+        return formattedData;
       }
+      return [];
     } catch (error) {
-      console.error("Error importing meta data:", error);
+      console.error("Error fetching meta data:", error);
       setChatNotification("Ocurrió un error al importar los datos de Meta.");
+      return null;
     } finally {
       setIsImportingMeta(false);
     }
   };
 
-  const [analysisReport, setAnalysisReport] = useState<AnalysisReport | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const handleImportMetaData = async () => {
+    const data = await fetchMetaDataResult();
+    if (data) {
+      if (data.length > 0) {
+        setCsvData(data);
+        setChatNotification(`Se importaron ${data.length} registros desde Meta Ads.`);
+      } else {
+        setChatNotification("No se encontraron datos en el periodo seleccionado.");
+      }
+    }
+  };
 
   const handleExecuteAnalysis = async () => {
-    if (csvData.length === 0) {
-      setChatNotification("Primero importa datos de Meta o carga un archivo CSV.");
-      return;
-    }
+    let dataToAnalyze = [...csvData];
 
     setIsAnalyzing(true);
-    setChatNotification("IA Smart Ads analizando el rendimiento de tus campañas...");
 
     try {
-      const report = await analyzePerformanceData(csvData);
+      if (dataToAnalyze.length === 0) {
+        if (selectedAdAccount) {
+          const metaData = await fetchMetaDataResult();
+          if (metaData && metaData.length > 0) {
+            setCsvData(metaData);
+            dataToAnalyze = metaData;
+          } else {
+            if (!metaData) {
+              setIsAnalyzing(false);
+              return;
+            }
+            setChatNotification("No hay datos para analizar.");
+            setIsAnalyzing(false);
+            return;
+          }
+        } else {
+          setChatNotification("Primero conecta Meta Ads o carga un archivo CSV.");
+          setIsAnalyzing(false);
+          return;
+        }
+      }
+
+      setChatNotification("IA Smart Ads analizando el rendimiento de tus campañas...");
+      const report = await analyzePerformanceData(dataToAnalyze);
       setAnalysisReport(report);
-      setChatNotification("¡Análisis completado! Revisa el dashboard de rendimiento.");
-      
-      // Switch view to analysis tab
+      setChatNotification("¡Análisis completado! Revisa los resultados del dashboard.");
       setActiveHomeTab('analizar');
     } catch (error) {
       console.error("Analysis Error:", error);
@@ -1864,7 +1891,7 @@ export default function App() {
 
                         <button
                           onClick={handleExecuteAnalysis}
-                          disabled={isImportingMeta || isAnalyzing || csvData.length === 0}
+                          disabled={isImportingMeta || isAnalyzing || (!selectedAdAccount && csvData.length === 0)}
                           className="w-full py-3 rounded-lg bg-neon-blue/10 border border-neon-blue/30 text-neon-blue font-orbitron text-[10px] font-black uppercase tracking-widest hover:bg-neon-blue hover:text-black transition-all flex items-center justify-center gap-2 group disabled:opacity-30"
                         >
                           {isAnalyzing ? <Cpu className="animate-spin" size={14} /> : <TrendingUp size={14} />}

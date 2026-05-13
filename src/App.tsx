@@ -302,11 +302,19 @@ export default function App() {
       
       console.error("Login Error:", error);
       
+      // Detailed error handling for custom domain issues
+      if (error.code === 'auth/unauthorized-domain') {
+        setChatNotification('⚠️ ERROR DE DOMINIO: Este dominio no está autorizado en Firebase. Por favor, agrega "smartads.com.co" en "Dominios autorizados" en la Consola de Firebase (Autenticación > Ajustes).');
+        return;
+      }
+
       // Fallback for simulation if needed (only if they typed an email)
       if (loginEmail && !loginEmail.includes('google.com')) {
         setIsLoggedIn(true);
         localStorage.setItem('smart_ads_logged_in', 'true');
-        setChatNotification('Acceso en modo simulación.');
+        setChatNotification('Aviso: Has ingresado en modo simulación local porque la conexión con Google falló.');
+      } else {
+        setChatNotification('Error al iniciar sesión. Por favor, verifica tu conexión.');
       }
     }
   };

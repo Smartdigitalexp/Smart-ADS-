@@ -1799,7 +1799,7 @@ export default function App() {
                 >
                   <div className="flex flex-col gap-2">
                     <h2 className="font-orbitron text-base md:text-lg font-bold flex items-center gap-2">
-                      <TrendingUp className="text-neon-blue" /> SMART ANALYTICS
+                      <TrendingUp className="text-neon-blue" /> ADS ANALYTICS
                     </h2>
                     <p className="text-[10px] text-white/40 uppercase tracking-widest leading-relaxed">
                       Optimiza tu estrategia neural procesando archivos de rendimiento histórico.
@@ -1985,7 +1985,7 @@ export default function App() {
                           <ChevronRight className="rotate-180" size={16} />
                         </button>
                       )}
-                      <Zap className="text-neon-blue" /> {activeAssetTool === 'campaign' ? 'SMART STUDIO' : activeAssetTool.toUpperCase().replace('_', ' ')}
+                      <Zap className="text-neon-blue" /> {activeAssetTool === 'campaign' ? 'ADS STUDIO' : activeAssetTool.toUpperCase().replace('_', ' ')}
                     </h2>
                     <p className="text-[10px] text-white/40 uppercase tracking-widest leading-relaxed">
                       Transforma tu visión en piezas publicitarias de alto impacto con IA Neural.

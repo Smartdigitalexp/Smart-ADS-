@@ -1,6 +1,5 @@
 import express from "express";
 import path from "path";
-import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import admin from "firebase-admin";
@@ -10,9 +9,6 @@ import fs from "fs";
 console.log("Starting server entry point...");
 
 dotenv.config();
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // Initialize Firebase Admin
 const configPath = path.join(process.cwd(), "firebase-applet-config.json");

@@ -1,7 +1,69 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { AdResult, CampaignData, CSVRow } from "../types";
+import { AdResult, CampaignData, CSVRow, AnalysisReport } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+export async function analyzePerformanceData(
+  data: CSVRow[]
+): Promise<AnalysisReport> {
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: `
+    DATOS DE RENDIMIENTO DE CAMPAÑAS (Meta Ads):
+    ${JSON.stringify(data)}
+
+    TAREA:
+    Realiza un análisis exhaustivo y profesional de estos datos de publicidad. 
+    Identifica patrones, éxitos y fracasos. Proporciona una estrategia clara para el futuro.
+
+    ESTRUCTURA DE RESPUESTA:
+    1. Resumen: Un resumen ejecutivo de una sola frase sobre el rendimiento general.
+    2. Conclusiones: Lista de puntos clave extraídos de los datos.
+    3. Recomendaciones: Pasos accionables para mejorar los resultados.
+    4. Top Performers: Anuncios o variables que funcionaron mejor y por qué.
+    5. Low Performers: Lo que falló y por qué (evitar repetir esto).
+    6. Strategic Insights: Un análisis profundo sobre el formato, texto o concepto que más resonó.
+
+    Responde exclusivamente en formato JSON estructurado según el esquema proporcionado.
+    `,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          summary: { type: Type.STRING },
+          conclusions: { type: Type.ARRAY, items: { type: Type.STRING } },
+          recommendations: { type: Type.ARRAY, items: { type: Type.STRING } },
+          topPerformers: { 
+            type: Type.ARRAY, 
+            items: { 
+              type: Type.OBJECT, 
+              properties: { 
+                name: { type: Type.STRING }, 
+                reason: { type: Type.STRING } 
+              } 
+            } 
+          },
+          lowPerformers: { 
+            type: Type.ARRAY, 
+            items: { 
+              type: Type.OBJECT, 
+              properties: { 
+                name: { type: Type.STRING }, 
+                reason: { type: Type.STRING } 
+              } 
+            } 
+          },
+          strategicInsights: { type: Type.STRING }
+        },
+        required: ["summary", "conclusions", "recommendations", "topPerformers", "lowPerformers", "strategicInsights"]
+      }
+    }
+  });
+
+  const text = response.text || "{}";
+  return JSON.parse(text);
+}
 
 export async function analyzeAndGenerate(
   campaign: CampaignData,

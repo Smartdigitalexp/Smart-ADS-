@@ -32,6 +32,56 @@ export async function getPages(token: string): Promise<MetaPage[]> {
   return data.data || [];
 }
 
+export async function getCampaigns(token: string, adAccountId: string) {
+  const res = await fetch(`/api/meta/campaigns?adAccountId=${adAccountId}`, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  const data = await res.json();
+  return data.data || [];
+}
+
+export async function getAdSets(token: string, adAccountId: string, campaignId?: string) {
+  let url = `/api/meta/adsets?adAccountId=${adAccountId}`;
+  if (campaignId) url += `&campaignId=${campaignId}`;
+  
+  const res = await fetch(url, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  const data = await res.json();
+  return data.data || [];
+}
+
+export async function getAds(token: string, adAccountId: string, adSetId?: string) {
+  let url = `/api/meta/ads?adAccountId=${adAccountId}`;
+  if (adSetId) url += `&adSetId=${adSetId}`;
+  
+  const res = await fetch(url, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  const data = await res.json();
+  return data.data || [];
+}
+
+export async function getInsights(token: string, params: {
+  adAccountId: string;
+  level?: 'campaign' | 'adset' | 'ad';
+  filtering?: string;
+  timeRange?: { since: string; until: string };
+}) {
+  let url = `/api/meta/insights?adAccountId=${params.adAccountId}`;
+  if (params.level) url += `&level=${params.level}`;
+  if (params.filtering) url += `&filtering=${params.filtering}`;
+  if (params.timeRange) {
+    url += `&time_range=${JSON.stringify(params.timeRange)}`;
+  }
+
+  const res = await fetch(url, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  const data = await res.json();
+  return data.data || [];
+}
+
 export async function publishAd(params: {
   accessToken: string;
   adAccountId: string;

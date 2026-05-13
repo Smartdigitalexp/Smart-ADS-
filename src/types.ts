@@ -41,6 +41,46 @@ export interface CSVRow {
   ctr: number;
   engagement: number;
   resultados: number;
+  impresiones?: number;
+  alcance?: number;
+  clics_enlace?: number;
+  cpc?: number;
+  cpm?: number;
+  gasto_total?: number;
+}
+
+export interface AnalysisReport {
+  summary: string;
+  conclusions: string[];
+  recommendations: string[];
+  topPerformers: {
+    name: string;
+    reason: string;
+  }[];
+  lowPerformers: {
+    name: string;
+    reason: string;
+  }[];
+  strategicInsights: string;
+}
+
+export interface DashboardMetric {
+  name: string;
+  value: number;
+  unit?: string;
+}
+
+export interface AdPerformanceItem {
+  name: string;
+  impresiones: number;
+  alcance: number;
+  resultados: number;
+  clics_enlace: number;
+  interacciones: number;
+  ctr: number;
+  cpc: number;
+  cpm: number;
+  gasto_total: number;
 }
 
 export interface HistoryItem {

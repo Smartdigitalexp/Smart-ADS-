@@ -32,20 +32,38 @@ import {
   Menu,
   X,
   TrendingUp,
-  CheckCircle2
+  CheckCircle2,
+  BrainCircuit,
+  AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { analyzeAndGenerate, generateCreativeConcept, generateVideoFromPrompt, optimizeProductReference } from './services/geminiService';
-import { AdResult, CampaignData, CSVRow, HistoryItem, UserProfile } from './types';
+import { analyzeAndGenerate, generateCreativeConcept, generateVideoFromPrompt, optimizeProductReference, analyzePerformanceData } from './services/geminiService';
+import { AdResult, CampaignData, CSVRow, HistoryItem, UserProfile, AnalysisReport } from './types';
 import { SmartBot } from './components/SmartBot';
 import { Logo } from './components/Logo';
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  BarChart,
+  Bar,
+  Cell
+} from 'recharts';
 import { 
   getMetaAuthUrl, 
   getAdAccounts, 
   getPages, 
+  getCampaigns,
+  getAdSets,
+  getAds,
+  getInsights,
   publishAd,
   type MetaAdAccount,
   type MetaPage
@@ -107,6 +125,8 @@ export default function App() {
   const [copiedType, setCopiedType] = useState<string | null>(null);
   const [isGeneratingConcept, setIsGeneratingConcept] = useState(false);
   const [activeHomeTab, setActiveHomeTab] = useState<'analizar' | 'crear'>('analizar');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const csvInputRef = useRef<HTMLInputElement>(null);
 
   // Firebase & History State
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
@@ -537,8 +557,297 @@ export default function App() {
     setChatNotification('Redirigiendo a pasarela de pago Bold...');
   };
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const csvInputRef = useRef<HTMLInputElement>(null);
+  const [metaAnalysisData, setMetaAnalysisData] = useState<{
+    campaigns: any[];
+    adSets: any[];
+    ads: any[];
+  }>({
+    campaigns: [],
+    adSets: [],
+    ads: []
+  });
+  const [selectedAnalysisIds, setSelectedAnalysisIds] = useState({
+    campaignId: '',
+    adSetId: '',
+    adId: ''
+  });
+  const [analysisDateRange, setAnalysisDateRange] = useState({
+    since: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    until: new Date().toISOString().split('T')[0]
+  });
+  const [isImportingMeta, setIsImportingMeta] = useState(false);
+
+  // New logic for Meta Analysis imports
+  useEffect(() => {
+    if (metaToken && selectedAdAccount) {
+      loadAnalysisCampaigns();
+    }
+  }, [metaToken, selectedAdAccount]);
+
+  useEffect(() => {
+    if (metaToken && selectedAdAccount && selectedAnalysisIds.campaignId) {
+      loadAnalysisAdSets();
+    } else {
+      setMetaAnalysisData(prev => ({ ...prev, adSets: [], ads: [] }));
+      setSelectedAnalysisIds(prev => ({ ...prev, adSetId: '', adId: '' }));
+    }
+  }, [selectedAnalysisIds.campaignId]);
+
+  useEffect(() => {
+    if (metaToken && selectedAdAccount && selectedAnalysisIds.adSetId) {
+      loadAnalysisAds();
+    } else {
+      setMetaAnalysisData(prev => ({ ...prev, ads: [] }));
+      setSelectedAnalysisIds(prev => ({ ...prev, adId: '' }));
+    }
+  }, [selectedAnalysisIds.adSetId]);
+
+  const loadAnalysisCampaigns = async () => {
+    if (!metaToken || !selectedAdAccount) return;
+    try {
+      const data = await getCampaigns(metaToken, selectedAdAccount);
+      setMetaAnalysisData(prev => ({ ...prev, campaigns: data, adSets: [], ads: [] }));
+    } catch (error) {
+      console.error("Error loading analysis campaigns:", error);
+    }
+  };
+
+  const loadAnalysisAdSets = async () => {
+    if (!metaToken || !selectedAdAccount || !selectedAnalysisIds.campaignId) return;
+    try {
+      const data = await getAdSets(metaToken, selectedAdAccount, selectedAnalysisIds.campaignId);
+      setMetaAnalysisData(prev => ({ ...prev, adSets: data, ads: [] }));
+    } catch (error) {
+      console.error("Error loading analysis adsets:", error);
+    }
+  };
+
+  const loadAnalysisAds = async () => {
+    if (!metaToken || !selectedAdAccount || !selectedAnalysisIds.adSetId) return;
+    try {
+      const data = await getAds(metaToken, selectedAdAccount, selectedAnalysisIds.adSetId);
+      setMetaAnalysisData(prev => ({ ...prev, ads: data }));
+    } catch (error) {
+      console.error("Error loading analysis ads:", error);
+    }
+  };
+
+  const handleImportMetaData = async () => {
+    if (!metaToken || !selectedAdAccount) {
+      setChatNotification("Por favor, conecta tu cuenta de Meta y selecciona una cuenta publicitaria.");
+      return;
+    }
+
+    setIsImportingMeta(true);
+    setChatNotification("Importando datos desde Meta...");
+
+    try {
+      let level: 'campaign' | 'adset' | 'ad' = 'ad';
+      let filtering = '';
+
+      if (selectedAnalysisIds.adId) {
+        filtering = JSON.stringify([{ field: 'ad.id', operator: 'IN', value: [selectedAnalysisIds.adId] }]);
+      } else if (selectedAnalysisIds.adSetId) {
+        level = 'ad'; // Still get ads but filtered by adset if possible, or just get adset level
+        filtering = JSON.stringify([{ field: 'adset.id', operator: 'IN', value: [selectedAnalysisIds.adSetId] }]);
+      } else if (selectedAnalysisIds.campaignId) {
+        level = 'ad';
+        filtering = JSON.stringify([{ field: 'campaign.id', operator: 'IN', value: [selectedAnalysisIds.campaignId] }]);
+      }
+
+      const insights = await getInsights(metaToken, {
+        adAccountId: selectedAdAccount,
+        level,
+        filtering,
+        timeRange: { since: analysisDateRange.since, until: analysisDateRange.until }
+      });
+
+      if (insights && insights.length > 0) {
+        const formattedData: CSVRow[] = insights.map((item: any) => ({
+          formato: item.adset_name || 'Personalizado',
+          concepto: item.campaign_name || 'Meta Ads',
+          texto: item.ad_name || 'Anuncio de Meta',
+          ctr: parseFloat(item.ctr || item.inline_link_click_ctr || '0'),
+          engagement: parseInt(item.inline_link_clicks || item.clicks || '0'),
+          resultados: parseInt(item.reach || item.impressions || '0'),
+          impresiones: parseInt(item.impressions || '0'),
+          alcance: parseInt(item.reach || '0'),
+          clics_enlace: parseInt(item.inline_link_clicks || item.clicks || '0'),
+          cpc: parseFloat(item.cpc || '0'),
+          cpm: parseFloat(item.cpm || '0'),
+          gasto_total: parseFloat(item.spend || '0')
+        }));
+
+        setCsvData(formattedData);
+        setChatNotification(`Se importaron ${formattedData.length} registros desde Meta Ads.`);
+      } else {
+        setChatNotification("No se encontraron datos en el periodo seleccionado.");
+      }
+    } catch (error) {
+      console.error("Error importing meta data:", error);
+      setChatNotification("Ocurrió un error al importar los datos de Meta.");
+    } finally {
+      setIsImportingMeta(false);
+    }
+  };
+
+  const [analysisReport, setAnalysisReport] = useState<AnalysisReport | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  const handleExecuteAnalysis = async () => {
+    if (csvData.length === 0) {
+      setChatNotification("Primero importa datos de Meta o carga un archivo CSV.");
+      return;
+    }
+
+    setIsAnalyzing(true);
+    setChatNotification("IA Smart Ads analizando el rendimiento de tus campañas...");
+
+    try {
+      const report = await analyzePerformanceData(csvData);
+      setAnalysisReport(report);
+      setChatNotification("¡Análisis completado! Revisa el dashboard de rendimiento.");
+      
+      // Switch view to analysis tab
+      setActiveHomeTab('analizar');
+    } catch (error) {
+      console.error("Analysis Error:", error);
+      setChatNotification("Ocurrió un error durante el análisis de datos.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const AnalysisDashboard = ({ data, report }: { data: CSVRow[], report: AnalysisReport | null }) => {
+    if (!data.length) return null;
+
+    const chartData = data.slice(0, 10).map(row => ({
+      name: row.texto.substring(0, 10) + '...',
+      ctr: row.ctr,
+      spend: row.gasto_total || 0,
+      reach: row.alcance || 0,
+      clicks: row.clics_enlace || 0,
+      impressions: row.impresiones || 0,
+    }));
+
+    return (
+      <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Main Chart */}
+          <div className="lg:col-span-2 glass-panel p-6 bg-white/5 border-neon-blue/20">
+            <h3 className="font-orbitron text-xs font-bold text-neon-blue uppercase tracking-widest mb-6">CURVA DE RENDIMIENTO (CTR)</h3>
+            <div className="h-64 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData}>
+                  <defs>
+                    <linearGradient id="colorCtr" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#00d1ff" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#00d1ff" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" vertical={false} />
+                  <XAxis dataKey="name" stroke="#ffffff40" fontSize={10} tickLine={false} axisLine={false} />
+                  <YAxis stroke="#ffffff40" fontSize={10} tickLine={false} axisLine={false} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#000000cc', borderColor: '#00d1ff66', borderRadius: '8px', fontSize: '10px' }}
+                    itemStyle={{ color: '#00d1ff' }}
+                  />
+                  <Area type="monotone" dataKey="ctr" stroke="#00d1ff" fillOpacity={1} fill="url(#colorCtr)" strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Stats Grid */}
+          <div className="glass-panel p-6 bg-neon-blue/5 border-neon-blue/20">
+            <h3 className="font-orbitron text-xs font-bold text-neon-blue uppercase tracking-widest mb-6">KPIs GLOBALES</h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              {[
+                { label: 'Impresiones', value: data.reduce((acc, curr) => acc + (curr.impresiones || 0), 0) },
+                { label: 'Alcance', value: data.reduce((acc, curr) => acc + (curr.alcance || 0), 0) },
+                { label: 'Resultados', value: data.reduce((acc, curr) => acc + curr.resultados, 0) },
+                { label: 'Clics en enlace', value: data.reduce((acc, curr) => acc + (curr.clics_enlace || 0), 0) },
+                { label: 'Interacciones', value: data.reduce((acc, curr) => acc + (curr.engagement || 0), 0) },
+                { label: 'CTR Medio', value: (data.reduce((acc, curr) => acc + curr.ctr, 0) / data.length).toFixed(2) + '%' },
+                { label: 'CPC Medio', value: '$' + (data.reduce((acc, curr) => acc + (curr.cpc || 0), 0) / data.length).toFixed(2) },
+                { label: 'CPM Medio', value: '$' + (data.reduce((acc, curr) => acc + (curr.cpm || 0), 0) / data.length).toFixed(2) },
+                { label: 'Gasto Total', value: '$' + data.reduce((acc, curr) => acc + (curr.gasto_total || 0), 0).toFixed(2) },
+              ].map((stat, idx) => (
+                <div key={idx} className="border-l-2 border-neon-blue/30 pl-3">
+                  <p className="text-[9px] text-white/40 uppercase tracking-widest mb-1">{stat.label}</p>
+                  <p className="font-orbitron text-sm font-bold text-white">{stat.value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {report && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="glass-panel p-6 bg-white/5 border-white/10">
+              <div className="flex items-center gap-2 mb-4">
+                <BrainCircuit className="text-neon-blue" size={18} />
+                <h3 className="font-orbitron text-xs font-bold uppercase tracking-widest text-white">INSIGHTS ESTRATÉGICOS</h3>
+              </div>
+              <p className="text-xs text-white/70 italic mb-4">"{report.summary}"</p>
+              <div className="space-y-4">
+                <div>
+                  <h4 className="text-[10px] font-orbitron text-neon-blue uppercase mb-2">Conclusiones</h4>
+                  <ul className="space-y-2">
+                    {report.conclusions.map((c, i) => (
+                      <li key={i} className="text-[10px] text-white/60 flex gap-2">
+                        <span className="text-neon-blue">›</span> {c}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <h4 className="text-[10px] font-orbitron text-green-400 uppercase mb-2">Recomendaciones</h4>
+                  <ul className="space-y-2">
+                    {report.recommendations.map((r, i) => (
+                      <li key={i} className="text-[10px] text-white/60 flex gap-2">
+                        <span className="text-green-400">✓</span> {r}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              <div className="glass-panel p-6 bg-green-500/5 border-green-500/20">
+                <h3 className="font-orbitron text-[10px] font-bold text-green-400 uppercase mb-4 flex items-center gap-2">
+                  <TrendingUp size={14} /> TOP PERFORMERS (WINNERS)
+                </h3>
+                <div className="space-y-3">
+                  {report.topPerformers.map((item, i) => (
+                    <div key={i} className="p-3 bg-black/20 rounded border border-white/5">
+                      <p className="text-[10px] font-bold text-white mb-1 uppercase tracking-wider">{item.name}</p>
+                      <p className="text-[9px] text-white/50">{item.reason}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="glass-panel p-6 bg-red-500/5 border-red-500/20">
+                <h3 className="font-orbitron text-[10px] font-bold text-red-400 uppercase mb-4 flex items-center gap-2">
+                  <AlertTriangle size={14} /> LOW PERFORMERS (AVOID)
+                </h3>
+                <div className="space-y-3">
+                  {report.lowPerformers.map((item, i) => (
+                    <div key={i} className="p-3 bg-black/20 rounded border border-white/5">
+                      <p className="text-[10px] font-bold text-white mb-1 uppercase tracking-wider">{item.name}</p>
+                      <p className="text-[9px] text-white/50">{item.reason}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -759,7 +1068,25 @@ export default function App() {
       }
 
       const variantsCount = userProfile.multiVariantEnabled === false ? 1 : 3;
-      const res = await analyzeAndGenerate(campaign, csvData, visualBase64, visualMimeType, variantsCount);
+
+      // Use analysis report conclusions/insights as secondary learning
+      const learningContext = analysisReport ? {
+        topPerformers: analysisReport.topPerformers.map(p => p.name).join(', '),
+        insights: analysisReport.strategicInsights,
+        recommendations: analysisReport.recommendations.join('. ')
+      } : null;
+
+      const enrichedConcept = learningContext 
+        ? `${campaign.creativeConcept}\n\n[ANÁLISIS NEURAL PREVIO]: ${learningContext.insights}. Recomendaciones: ${learningContext.recommendations}. Basado en éxitos previo de: ${learningContext.topPerformers}`
+        : campaign.creativeConcept;
+
+      const res = await analyzeAndGenerate(
+        { ...campaign, creativeConcept: enrichedConcept },
+        csvData,
+        visualBase64,
+        visualMimeType,
+        variantsCount
+      );
       setResults(res);
       const count = res.length;
       setChatNotification('¡Listo! He generado tu propuesta publicitaria de alto impacto');
@@ -1427,31 +1754,163 @@ export default function App() {
                   <div className="grid grid-cols-1 gap-6">
                     <div 
                       onClick={() => csvInputRef.current?.click()}
-                      className="glass-panel p-10 border-dashed border-2 border-neon-blue/30 hover:border-neon-blue/60 transition-all cursor-pointer group flex flex-col items-center justify-center text-center gap-4 bg-neon-blue/5"
+                      className="glass-panel p-10 border-dashed border-2 border-neon-blue/30 hover:border-neon-blue/60 transition-all cursor-pointer group flex flex-col items-center justify-center text-center gap-4 bg-white/5"
                     >
                       <input type="file" accept=".csv" ref={csvInputRef} onChange={handleCsvUpload} className="hidden" />
                       <div className="w-20 h-20 rounded-full bg-neon-blue/10 flex items-center justify-center group-hover:scale-110 transition-transform shadow-[0_0_20px_rgba(0,209,255,0.1)]">
-                        <TrendingUp className="text-neon-blue" size={40} />
+                        <Upload className="text-neon-blue" size={40} />
                       </div>
                       <div>
-                        <h3 className="font-orbitron text-sm font-bold tracking-wider uppercase">DATA ANALYTICS HUD</h3>
+                        <h3 className="font-orbitron text-sm font-bold tracking-wider uppercase">IMPORTAR CSV</h3>
                         <p className="text-[10px] text-white/40 mt-1 uppercase tracking-widest">
-                          {csvData.length > 0 ? `${csvData.length} filas analizadas en el buffer` : 'Cargar archivo .CSV de rendimiento'}
+                          {csvData.length > 0 ? `${csvData.length} registros cargados` : 'Analizar datos desde archivo local'}
                         </p>
                       </div>
                     </div>
+
+                    <div className="flex items-center gap-4 py-2">
+                      <div className="h-px flex-1 bg-white/10" />
+                      <span className="text-[10px] text-white/20 font-orbitron uppercase tracking-[0.3em]">O importar desde API</span>
+                      <div className="h-px flex-1 bg-white/10" />
+                    </div>
+
+                    {metaToken ? (
+                      <div className="glass-panel p-6 border-neon-blue/20 bg-neon-blue/5 space-y-6">
+                        <div className="flex items-center gap-2 mb-4">
+                          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                          <h3 className="font-orbitron text-xs font-bold tracking-wider uppercase text-neon-blue">META ADS CONNECTED</h3>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Cuenta Publicitaria</label>
+                            <select 
+                              value={selectedAdAccount}
+                              onChange={(e) => setSelectedAdAccount(e.target.value)}
+                              className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2 text-xs text-white/80 focus:border-neon-blue outline-none font-orbitron"
+                            >
+                              <option value="">Seleccionar cuenta...</option>
+                              {adAccounts.map(acc => (
+                                <option key={acc.id} value={acc.id}>{acc.name} ({acc.account_id})</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Campaña</label>
+                            <select 
+                              value={selectedAnalysisIds.campaignId}
+                              onChange={(e) => setSelectedAnalysisIds(prev => ({ ...prev, campaignId: e.target.value }))}
+                              className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2 text-xs text-white/80 focus:border-neon-blue outline-none font-orbitron"
+                              disabled={!selectedAdAccount}
+                            >
+                              <option value="">Todas las campañas</option>
+                              {metaAnalysisData.campaigns.map(camp => (
+                                <option key={camp.id} value={camp.id}>{camp.name}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Grupo de Anuncios</label>
+                            <select 
+                              value={selectedAnalysisIds.adSetId}
+                              onChange={(e) => setSelectedAnalysisIds(prev => ({ ...prev, adSetId: e.target.value }))}
+                              className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2 text-xs text-white/80 focus:border-neon-blue outline-none font-orbitron"
+                              disabled={!selectedAnalysisIds.campaignId}
+                            >
+                              <option value="">Todos los grupos</option>
+                              {metaAnalysisData.adSets.map(aset => (
+                                <option key={aset.id} value={aset.id}>{aset.name}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Anuncio</label>
+                            <select 
+                              value={selectedAnalysisIds.adId}
+                              onChange={(e) => setSelectedAnalysisIds(prev => ({ ...prev, adId: e.target.value }))}
+                              className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2 text-xs text-white/80 focus:border-neon-blue outline-none font-orbitron"
+                              disabled={!selectedAnalysisIds.adSetId}
+                            >
+                              <option value="">Todos los anuncios</option>
+                              {metaAnalysisData.ads.map(ad => (
+                                <option key={ad.id} value={ad.id}>{ad.name}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Desde</label>
+                            <input 
+                              type="date"
+                              value={analysisDateRange.since}
+                              onChange={(e) => setAnalysisDateRange(prev => ({ ...prev, since: e.target.value }))}
+                              className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2 text-xs text-white/80 focus:border-neon-blue outline-none font-orbitron"
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Hasta</label>
+                            <input 
+                              type="date"
+                              value={analysisDateRange.until}
+                              onChange={(e) => setAnalysisDateRange(prev => ({ ...prev, until: e.target.value }))}
+                              className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2 text-xs text-white/80 focus:border-neon-blue outline-none font-orbitron"
+                            />
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={handleExecuteAnalysis}
+                          disabled={isImportingMeta || isAnalyzing || csvData.length === 0}
+                          className="w-full py-3 rounded-lg bg-neon-blue/10 border border-neon-blue/30 text-neon-blue font-orbitron text-[10px] font-black uppercase tracking-widest hover:bg-neon-blue hover:text-black transition-all flex items-center justify-center gap-2 group disabled:opacity-30"
+                        >
+                          {isAnalyzing ? <Cpu className="animate-spin" size={14} /> : <TrendingUp size={14} />}
+                          EJECUTAR ANÁLISIS INTELIGENTE
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="glass-panel p-8 border-white/10 flex flex-col items-center text-center gap-4">
+                        <TrendingUp className="text-white/20" size={32} />
+                        <div>
+                          <h3 className="font-orbitron text-xs font-bold tracking-wider uppercase text-white/60">INTEGRACIÓN DE META ADS</h3>
+                          <p className="text-[10px] text-white/30 mt-1 uppercase tracking-widest">Analiza tus campañas directamente conectando tu cuenta principal</p>
+                        </div>
+                        <button
+                          onClick={handleMetaLogin}
+                          className="px-6 py-2 rounded-lg bg-white/5 border border-white/10 text-white font-orbitron text-[9px] font-bold uppercase tracking-widest hover:bg-white/10 transition-all"
+                        >
+                          Conectar Meta Ads
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex justify-center">
                     <button 
-                      onClick={processAds}
-                      disabled={isProcessing}
-                      className="px-12 py-4 rounded-xl bg-neon-blue/10 border border-neon-blue text-neon-blue font-black text-xs uppercase tracking-[0.3em] hover:bg-neon-blue hover:text-black transition-all flex items-center gap-3 group shadow-[0_0_15px_rgba(0,209,255,0.2)] disabled:opacity-50"
+                      onClick={() => setActiveHomeTab('crear')}
+                      className="group flex flex-col items-center gap-3"
                     >
-                      {isProcessing ? <Cpu className="animate-spin" size={18} /> : <TrendingUp size={18} />}
-                      EJECUTAR ANÁLISIS
+                      <div className="w-12 h-12 rounded-full bg-white/5 border border-white/10 flex items-center justify-center group-hover:border-neon-blue/50 transition-all shadow-[0_0_10px_rgba(255,255,255,0.02)]">
+                        <ChevronDown className="text-white/40 group-hover:text-neon-blue transition-colors" />
+                      </div>
+                      <span className="text-[8px] font-orbitron text-white/20 uppercase tracking-[0.4em]">Continuar a Creación</span>
                     </button>
                   </div>
+
+                  {csvData.length > 0 && (
+                    <div className="mt-12 space-y-8">
+                      <div className="flex items-center gap-4">
+                        <div className="h-px flex-1 bg-neon-blue/20" />
+                        <h2 className="font-orbitron text-sm font-bold text-neon-blue uppercase tracking-[0.4em]">Análisis de Inteligencia Neural</h2>
+                        <div className="h-px flex-1 bg-neon-blue/20" />
+                      </div>
+                      
+                      <AnalysisDashboard data={csvData} report={analysisReport} />
+                    </div>
+                  )}
                 </motion.div>
               ) : (
                 <motion.div 
@@ -1994,7 +2453,7 @@ export default function App() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {[
-                  { amount: 300, price: 30, link: 'https://checkout.bold.co/payment/LNK_JKXIG2RC6D' },
+                  { amount: 200, price: 30, link: 'https://checkout.bold.co/payment/LNK_JKXIG2RC6D' },
                   { amount: 500, price: 50, link: 'https://checkout.bold.co/payment/LNK_XYV3YLFZVR' },
                   { amount: 1000, price: 100, popular: true, link: 'https://checkout.bold.co/payment/LNK_MX4PJZWPYL' },
                   { amount: 3000, price: 200, link: 'https://checkout.bold.co/payment/LNK_NGC8B65ZUN' },

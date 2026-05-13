@@ -136,7 +136,7 @@ async function startServer() {
       else if (price >= 200) creditsToAdd = 3000;
       else if (price >= 100) creditsToAdd = 1000;
       else if (price >= 50) creditsToAdd = 500;
-      else if (price >= 30) creditsToAdd = 300;
+      else if (price >= 30) creditsToAdd = 200;
 
       try {
         const userRef = db.collection("users").doc(userId);
@@ -328,6 +328,94 @@ async function startServer() {
       res.json(data);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch pages" });
+    }
+  });
+
+  // New: Get Campaigns for an Ad Account
+  app.get("/api/meta/campaigns", async (req, res) => {
+    const accessToken = req.headers.authorization?.split(" ")[1];
+    const { adAccountId } = req.query;
+    if (!accessToken || !adAccountId) return res.status(400).json({ error: "Missing token or account ID" });
+
+    const fullAdAccountId = adAccountId.toString().startsWith('act_') ? adAccountId : `act_${adAccountId}`;
+
+    try {
+      const response = await fetch(`https://graph.facebook.com/v19.0/${fullAdAccountId}/campaigns?fields=name,id,objective,status&access_token=${accessToken}`);
+      const data = await response.json();
+      if (data.error) throw new Error(data.error.message);
+      res.json(data);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // New: Get Ad Sets for a Campaign
+  app.get("/api/meta/adsets", async (req, res) => {
+    const accessToken = req.headers.authorization?.split(" ")[1];
+    const { adAccountId, campaignId } = req.query;
+    if (!accessToken || !adAccountId) return res.status(400).json({ error: "Missing params" });
+
+    const parentId = campaignId ? campaignId : (adAccountId.toString().startsWith('act_') ? adAccountId : `act_${adAccountId}`);
+
+    try {
+      const response = await fetch(`https://graph.facebook.com/v19.0/${parentId}/adsets?fields=name,id,status&access_token=${accessToken}`);
+      const data = await response.json();
+      if (data.error) throw new Error(data.error.message);
+      res.json(data);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // New: Get Ads for an Ad Set or Account
+  app.get("/api/meta/ads", async (req, res) => {
+    const accessToken = req.headers.authorization?.split(" ")[1];
+    const { adAccountId, adSetId } = req.query;
+    if (!accessToken || !adAccountId) return res.status(400).json({ error: "Missing params" });
+
+    const parentId = adSetId ? adSetId : (adAccountId.toString().startsWith('act_') ? adAccountId : `act_${adAccountId}`);
+
+    try {
+      const response = await fetch(`https://graph.facebook.com/v19.0/${parentId}/ads?fields=name,id,status,adcreatives{name,object_story_spec,image_url,thumbnail_url}&access_token=${accessToken}`);
+      const data = await response.json();
+      if (data.error) throw new Error(data.error.message);
+      res.json(data);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // New: Get Insights with filtering
+  app.get("/api/meta/insights", async (req, res) => {
+    const accessToken = req.headers.authorization?.split(" ")[1];
+    const { adAccountId, level, filtering, time_range } = req.query;
+    if (!accessToken || !adAccountId) return res.status(400).json({ error: "Missing params" });
+
+    const fullAdAccountId = adAccountId.toString().startsWith('act_') ? adAccountId : `act_${adAccountId}`;
+    
+    // Default metrics to fetch
+    const fields = "ad_id,ad_name,campaign_name,adset_name,impressions,clicks,ctr,inline_link_click_ctr,reach,spend,frequency,actions";
+    
+    let url = `https://graph.facebook.com/v19.0/${fullAdAccountId}/insights?level=${level || 'ad'}&fields=${fields}&access_token=${accessToken}`;
+    
+    if (time_range) {
+      url += `&time_range=${time_range}`;
+    } else {
+      url += `&date_preset=last_30d`;
+    }
+
+    if (filtering) {
+      // filtering should be a JSON string like [{"field":"ad.id","operator":"IN","value":["..."]}]
+      url += `&filtering=${filtering}`;
+    }
+
+    try {
+      const response = await fetch(url);
+      const data = await response.json();
+      if (data.error) throw new Error(data.error.message);
+      res.json(data);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
     }
   });
 

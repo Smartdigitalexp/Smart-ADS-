@@ -1543,7 +1543,7 @@ export default function App() {
                   className="flex items-center gap-1.5 text-[10px] font-black text-neon-blue hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed group"
                 >
                   <Sparkles size={12} className={cn("group-hover:scale-125 transition-transform", isGeneratingConcept && "animate-spin")} />
-                  {isGeneratingConcept ? 'GENERANDO...' : 'GENERAR AI'}
+                  {isGeneratingConcept ? 'PUBLICANDO...' : 'PUBLICAR AI'}
                 </button>
               </div>
               <textarea 
@@ -1747,7 +1747,7 @@ export default function App() {
                 ) : (
                   <>
                     <Zap size={20} className="group-hover:scale-125 transition-transform" />
-                    GENERAR ANUNCIO
+                    PUBLICAR ANUNCIO
                   </>
                 )}
               </button>
@@ -1799,7 +1799,7 @@ export default function App() {
                 >
                   <div className="flex flex-col gap-2">
                     <h2 className="font-orbitron text-base md:text-lg font-bold flex items-center gap-2">
-                      <TrendingUp className="text-neon-blue" /> ANALIZAR ANUNCIOS
+                      <TrendingUp className="text-neon-blue" /> SMART ANALYTICS
                     </h2>
                     <p className="text-[10px] text-white/40 uppercase tracking-widest leading-relaxed">
                       Optimiza tu estrategia neural procesando archivos de rendimiento histórico.
@@ -1985,7 +1985,7 @@ export default function App() {
                           <ChevronRight className="rotate-180" size={16} />
                         </button>
                       )}
-                      <Zap className="text-neon-blue" /> {activeAssetTool === 'campaign' ? 'ASSET STUDIO' : activeAssetTool.toUpperCase().replace('_', ' ')}
+                      <Zap className="text-neon-blue" /> {activeAssetTool === 'campaign' ? 'SMART STUDIO' : activeAssetTool.toUpperCase().replace('_', ' ')}
                     </h2>
                     <p className="text-[10px] text-white/40 uppercase tracking-widest leading-relaxed">
                       Transforma tu visión en piezas publicitarias de alto impacto con IA Neural.
@@ -2218,7 +2218,7 @@ export default function App() {
                       className="px-12 py-4 rounded-xl bg-neon-blue text-black font-black text-xs uppercase tracking-[0.3em] hover:bg-neon-blue/80 transition-all flex items-center gap-3 group shadow-[0_0_20px_rgba(0,209,255,0.3)] disabled:opacity-50"
                     >
                       {isProcessing ? <Cpu className="animate-spin" size={18} /> : <Zap size={18} />}
-                      GENERAR CREATIVO
+                      PUBLICAR CREATIVO
                     </button>
                   </div>
                 </motion.div>
@@ -2284,7 +2284,7 @@ export default function App() {
                         ) : (
                           <Zap size={14} />
                         )}
-                        {metaToken ? `PUBLICAR OPCIÓN ${selectedResultIndex + 1}` : "VINCULAR META"}
+                        {metaToken ? `PUBLICAR OPCIÓN ${selectedResultIndex + 1}` : "CONFIGURAR META"}
                       </button>
                     </div>
                   </div>
@@ -2447,7 +2447,7 @@ export default function App() {
                                       className="text-[9px] px-3 py-1.5 rounded bg-neon-blue/10 border border-neon-blue/30 text-neon-blue font-bold uppercase tracking-wider hover:bg-neon-blue hover:text-black transition-all flex items-center gap-2 group"
                                     >
                                       <Video size={12} className="group-hover:scale-110 transition-transform" />
-                                      GENERAR VIDEO
+                                      PUBLICAR VIDEO
                                     </button>
                                   )}
                                 </div>
@@ -2468,7 +2468,7 @@ export default function App() {
                         ) : (
                           <Zap size={20} />
                         )}
-                        {metaToken ? "PUBLICAR EN META ADS" : "VINCULAR CUENTA DE META"}
+                        {metaToken ? "PUBLICAR EN META ADS" : "CONFIGURAR CUENTA DE META"}
                       </button>
                     </div>
                   </div>
@@ -2541,7 +2541,7 @@ export default function App() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2 text-xs font-bold text-neon-blue">
-                  CONFIGURAR <ChevronRight size={14} /> SUBIR <ChevronRight size={14} /> ANALIZAR <ChevronRight size={14} /> GENERAR
+                  CONFIGURAR <ChevronRight size={14} /> ANALIZAR <ChevronRight size={14} /> CREAR <ChevronRight size={14} /> PUBLICAR
                 </div>
               </div>
             )}

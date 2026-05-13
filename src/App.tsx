@@ -8,7 +8,11 @@ import {
   Cpu, 
   Upload, 
   FileText, 
-  Image as ImageIcon, 
+  Image as ImageIcon,
+  Package,
+  Play,
+  Edit3,
+  Clapperboard,
   Video, 
   Copy, 
   Check, 
@@ -90,6 +94,29 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+const AssetToolCard = ({ icon, title, desc, onClick, active }: { icon: any, title: string, desc: string, onClick: () => void, active?: boolean }) => (
+  <motion.div 
+    whileHover={{ y: -5, scale: 1.02 }}
+    whileTap={{ scale: 0.98 }}
+    onClick={onClick}
+    className={cn(
+      "glass-panel p-6 border-white/10 hover:border-neon-blue/40 cursor-pointer transition-all flex flex-col gap-4 group bg-white/5",
+      active && "border-neon-blue bg-neon-blue/5 shadow-[0_0_20px_rgba(0,209,255,0.1)]"
+    )}
+  >
+    <div className={cn(
+      "w-10 h-10 rounded-lg flex items-center justify-center transition-colors",
+      active ? "bg-neon-blue text-black" : "bg-white/5 text-neon-blue group-hover:bg-neon-blue/20"
+    )}>
+      {icon}
+    </div>
+    <div>
+      <h3 className="font-orbitron text-[10px] font-bold text-white uppercase tracking-wider mb-1">{title}</h3>
+      <p className="text-[9px] text-white/30 uppercase tracking-widest leading-tight">{desc}</p>
+    </div>
+  </motion.div>
+);
+
 export default function App() {
   const [campaign, setCampaign] = useState<CampaignData>({
     productName: '',
@@ -125,6 +152,7 @@ export default function App() {
   const [copiedType, setCopiedType] = useState<string | null>(null);
   const [isGeneratingConcept, setIsGeneratingConcept] = useState(false);
   const [activeHomeTab, setActiveHomeTab] = useState<'analizar' | 'crear'>('analizar');
+  const [activeAssetTool, setActiveAssetTool] = useState<'campaign' | 'generate_img' | 'product_img' | 'animate' | 'edit_img' | 'video_gen'>('campaign');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
 
@@ -1779,28 +1807,6 @@ export default function App() {
                   </div>
 
                   <div className="grid grid-cols-1 gap-6">
-                    <div 
-                      onClick={() => csvInputRef.current?.click()}
-                      className="glass-panel p-10 border-dashed border-2 border-neon-blue/30 hover:border-neon-blue/60 transition-all cursor-pointer group flex flex-col items-center justify-center text-center gap-4 bg-white/5"
-                    >
-                      <input type="file" accept=".csv" ref={csvInputRef} onChange={handleCsvUpload} className="hidden" />
-                      <div className="w-20 h-20 rounded-full bg-neon-blue/10 flex items-center justify-center group-hover:scale-110 transition-transform shadow-[0_0_20px_rgba(0,209,255,0.1)]">
-                        <Upload className="text-neon-blue" size={40} />
-                      </div>
-                      <div>
-                        <h3 className="font-orbitron text-sm font-bold tracking-wider uppercase">IMPORTAR CSV</h3>
-                        <p className="text-[10px] text-white/40 mt-1 uppercase tracking-widest">
-                          {csvData.length > 0 ? `${csvData.length} registros cargados` : 'Analizar datos desde archivo local'}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-4 py-2">
-                      <div className="h-px flex-1 bg-white/10" />
-                      <span className="text-[10px] text-white/20 font-orbitron uppercase tracking-[0.3em]">O importar desde API</span>
-                      <div className="h-px flex-1 bg-white/10" />
-                    </div>
-
                     {metaToken ? (
                       <div className="glass-panel p-6 border-neon-blue/20 bg-neon-blue/5 space-y-6">
                         <div className="flex items-center gap-2 mb-4">
@@ -1913,6 +1919,28 @@ export default function App() {
                         </button>
                       </div>
                     )}
+
+                    <div className="flex items-center gap-4 py-2">
+                      <div className="h-px flex-1 bg-white/10" />
+                      <span className="text-[10px] text-white/20 font-orbitron uppercase tracking-[0.3em]">O importar archivo local</span>
+                      <div className="h-px flex-1 bg-white/10" />
+                    </div>
+
+                    <div 
+                      onClick={() => csvInputRef.current?.click()}
+                      className="glass-panel p-10 border-dashed border-2 border-neon-blue/30 hover:border-neon-blue/60 transition-all cursor-pointer group flex flex-col items-center justify-center text-center gap-4 bg-white/5"
+                    >
+                      <input type="file" accept=".csv" ref={csvInputRef} onChange={handleCsvUpload} className="hidden" />
+                      <div className="w-20 h-20 rounded-full bg-neon-blue/10 flex items-center justify-center group-hover:scale-110 transition-transform shadow-[0_0_20px_rgba(0,209,255,0.1)]">
+                        <Upload className="text-neon-blue" size={40} />
+                      </div>
+                      <div>
+                        <h3 className="font-orbitron text-sm font-bold tracking-wider uppercase">IMPORTAR CSV</h3>
+                        <p className="text-[10px] text-white/40 mt-1 uppercase tracking-widest">
+                          {csvData.length > 0 ? `${csvData.length} registros cargados` : 'Analizar datos desde archivo local'}
+                        </p>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="flex justify-center">
@@ -1949,14 +1977,107 @@ export default function App() {
                 >
                   <div className="flex flex-col gap-2">
                     <h2 className="font-orbitron text-base md:text-lg font-bold flex items-center gap-2">
-                      <Zap className="text-neon-blue" /> CREAR ANUNCIOS
+                      {activeAssetTool !== 'campaign' && (
+                        <button 
+                          onClick={() => setActiveAssetTool('campaign')}
+                          className="p-1 hover:bg-white/10 rounded transition-colors mr-2 text-white/40 hover:text-white"
+                        >
+                          <ChevronRight className="rotate-180" size={16} />
+                        </button>
+                      )}
+                      <Zap className="text-neon-blue" /> {activeAssetTool === 'campaign' ? 'ASSET STUDIO' : activeAssetTool.toUpperCase().replace('_', ' ')}
                     </h2>
                     <p className="text-[10px] text-white/40 uppercase tracking-widest leading-relaxed">
-                      Genera piezas visuales de alto impacto basadas en tu referencia y el núcleo neural.
+                      Transforma tu visión en piezas publicitarias de alto impacto con IA Neural.
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-6">
+                  {activeAssetTool === 'campaign' && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <AssetToolCard 
+                        icon={<Sparkles size={20} />}
+                        title="Nueva Campaña"
+                        desc="Genera creatividades completas desde una referencia"
+                        onClick={() => setActiveAssetTool('campaign')}
+                        active={true}
+                      />
+                      <AssetToolCard 
+                        icon={<ImageIcon size={20} />}
+                        title="Crea imágenes nuevas"
+                        desc="Genera visuales desde texto (Text to Image)"
+                        onClick={() => setActiveAssetTool('generate_img')}
+                      />
+                      <AssetToolCard 
+                        icon={<Package size={20} />}
+                        title="Imágenes de productos"
+                        desc="Optimiza y cambia fondos para tus productos"
+                        onClick={() => setActiveAssetTool('product_img')}
+                      />
+                      <AssetToolCard 
+                        icon={<Play size={20} />}
+                        title="Anima imágenes"
+                        desc="Convierte fotos en videos cinematográficos"
+                        onClick={() => setActiveAssetTool('animate')}
+                      />
+                      <AssetToolCard 
+                        icon={<Edit3 size={20} />}
+                        title="Editar imágenes"
+                        desc="Modifica elementos específicos con pincel IA"
+                        onClick={() => setActiveAssetTool('edit_img')}
+                      />
+                      <AssetToolCard 
+                        icon={<Clapperboard size={20} />}
+                        title="Video Studio"
+                        desc="Crea y edita videos desde texto o clips"
+                        onClick={() => setActiveAssetTool('video_gen')}
+                      />
+                    </div>
+                  )}
+
+                  {activeAssetTool !== 'campaign' && (
+                    <motion.div 
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="glass-panel p-8 border-neon-blue/20 bg-white/5 space-y-6"
+                    >
+                      <div className="flex items-center justify-between border-b border-white/5 pb-4">
+                        <div>
+                          <h3 className="font-orbitron text-sm font-bold text-white uppercase tracking-wider">HERRAMIENTA IA EN DESARROLLO</h3>
+                          <p className="text-[10px] text-white/40 uppercase tracking-widest mt-1">Este módulo se está sintonizando con tu núcleo neural</p>
+                        </div>
+                        <div className="w-12 h-12 rounded-full border border-neon-blue/20 flex items-center justify-center">
+                          <Cpu className="text-neon-blue animate-pulse" size={24} />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 py-10">
+                        <div className="space-y-4">
+                          <h4 className="font-orbitron text-xs font-bold text-neon-blue uppercase">Configuración de Generación</h4>
+                          <div className="space-y-3">
+                            <div className="space-y-1">
+                              <label className="text-[9px] text-white/30 uppercase tracking-widest font-bold">Instrucción (Prompt)</label>
+                              <textarea 
+                                placeholder="Describe el estilo, sujetos y ambiente deseado..."
+                                className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-[10px] text-white focus:border-neon-blue/50 outline-none h-24 resize-none"
+                              />
+                            </div>
+                            <button className="w-full py-3 rounded-lg bg-neon-blue text-black font-orbitron text-[10px] font-black uppercase tracking-widest hover:shadow-[0_0_20px_rgba(0,209,255,0.3)] transition-all">
+                              EJECUTAR PROCESO IA
+                            </button>
+                          </div>
+                        </div>
+                        <div className="glass-panel border-dashed border border-white/10 flex items-center justify-center bg-black/20 min-h-[200px] rounded-2xl relative overflow-hidden">
+                           <div className="text-center space-y-2 relative z-10">
+                              <ImageIcon className="mx-auto text-white/10" size={48} />
+                              <p className="text-[9px] text-white/20 uppercase tracking-widest font-bold">El resultado aparecerá aquí</p>
+                           </div>
+                           <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  <div className={cn("grid grid-cols-1 gap-6", activeAssetTool !== 'campaign' && "hidden")}>
                     <div className="flex flex-col gap-4">
                       <div 
                         onClick={() => !isProcessing && !isStudioProcessing && fileInputRef.current?.click()}

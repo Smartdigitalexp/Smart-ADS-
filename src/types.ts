@@ -22,6 +22,7 @@ export interface CampaignData {
   aspectRatio: string;
   creativeConcept: string;
   audience: string;
+  location?: string;
   videoDuration?: 5 | 10;
   budget?: string;
   destinationUrl?: string;

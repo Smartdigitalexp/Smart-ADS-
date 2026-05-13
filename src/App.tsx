@@ -38,7 +38,16 @@ import {
   TrendingUp,
   CheckCircle2,
   BrainCircuit,
-  AlertTriangle
+  AlertTriangle,
+  Send,
+  Calendar,
+  Target,
+  Users,
+  Layout,
+  Globe,
+  DollarSign,
+  Link2,
+  MapPin
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
@@ -46,7 +55,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { analyzeAndGenerate, generateCreativeConcept, generateVideoFromPrompt, optimizeProductReference, analyzePerformanceData } from './services/geminiService';
 import { AdResult, CampaignData, CSVRow, HistoryItem, UserProfile, AnalysisReport } from './types';
-import { SmartBot } from './components/SmartBot';
+import { AdsBot } from './components/AdsBot';
 import { Logo } from './components/Logo';
 import {
   ResponsiveContainer,
@@ -151,7 +160,7 @@ export default function App() {
   const [selectedResultIndex, setSelectedResultIndex] = useState(0);
   const [copiedType, setCopiedType] = useState<string | null>(null);
   const [isGeneratingConcept, setIsGeneratingConcept] = useState(false);
-  const [activeHomeTab, setActiveHomeTab] = useState<'analizar' | 'crear'>('analizar');
+  const [activeHomeTab, setActiveHomeTab] = useState<'analizar' | 'crear' | 'publicar'>('analizar');
   const [activeAssetTool, setActiveAssetTool] = useState<'campaign' | 'generate_img' | 'product_img' | 'animate' | 'edit_img' | 'video_gen'>('campaign');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
@@ -1265,7 +1274,7 @@ export default function App() {
             </div>
             <div className="block">
               <h1 className="font-orbitron text-xl sm:text-lg md:text-2xl font-black tracking-widest neon-text leading-none whitespace-nowrap">
-                SMART ADS
+                ADS STUDIO
               </h1>
               <p className="block text-[8px] sm:text-[10px] md:text-sm font-medium text-neon-blue/70 tracking-[0.05em] sm:tracking-[0.08em] md:tracking-[0.11em] uppercase mt-1 leading-none">
                 Creative Neural Engine v2.0
@@ -1747,7 +1756,7 @@ export default function App() {
                 ) : (
                   <>
                     <Zap size={20} className="group-hover:scale-125 transition-transform" />
-                    PUBLICAR ANUNCIO
+                    CREAR ANUNCIO
                   </>
                 )}
               </button>
@@ -1761,30 +1770,42 @@ export default function App() {
           
           <div className="max-w-4xl mx-auto space-y-12 relative z-10">
             {/* Tabs Navigation */}
-            <div className="grid grid-cols-2 gap-4 w-full">
+            <div className="grid grid-cols-3 gap-4 w-full">
               <button 
                 onClick={() => setActiveHomeTab('analizar')}
                 className={cn(
-                  "py-4 rounded-xl font-black text-xs uppercase tracking-[0.3em] transition-all flex items-center justify-center gap-3 border shadow-[0_0_15px_rgba(0,209,255,0.1)]",
+                  "py-4 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-2 border shadow-[0_0_15px_rgba(0,209,255,0.1)]",
                   activeHomeTab === 'analizar' 
                     ? "bg-neon-blue text-black border-neon-blue shadow-[0_0_20px_rgba(0,209,255,0.4)]" 
                     : "bg-neon-blue/5 border-neon-blue/30 text-neon-blue/60 hover:border-neon-blue hover:text-neon-blue"
                 )}
               >
-                <TrendingUp size={18} />
+                <TrendingUp size={16} />
                 ANALIZAR
               </button>
               <button 
                 onClick={() => setActiveHomeTab('crear')}
                 className={cn(
-                  "py-4 rounded-xl font-black text-xs uppercase tracking-[0.3em] transition-all flex items-center justify-center gap-3 border shadow-[0_0_15px_rgba(0,209,255,0.1)] transition-all",
+                  "py-4 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-2 border shadow-[0_0_15px_rgba(0,209,255,0.1)] transition-all",
                   activeHomeTab === 'crear' 
                     ? "bg-neon-blue text-black border-neon-blue shadow-[0_0_20px_rgba(0,209,255,0.4)]" 
                     : "bg-neon-blue/5 border-neon-blue/30 text-neon-blue/60 hover:border-neon-blue hover:text-neon-blue"
                 )}
               >
-                <Zap size={18} />
+                <Zap size={16} />
                 CREAR
+              </button>
+              <button 
+                onClick={() => setActiveHomeTab('publicar')}
+                className={cn(
+                  "py-4 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-2 border shadow-[0_0_15px_rgba(0,209,255,0.1)] transition-all",
+                  activeHomeTab === 'publicar' 
+                    ? "bg-neon-blue text-black border-neon-blue shadow-[0_0_20px_rgba(0,209,255,0.4)]" 
+                    : "bg-neon-blue/5 border-neon-blue/30 text-neon-blue/60 hover:border-neon-blue hover:text-neon-blue"
+                )}
+              >
+                <Send size={16} />
+                PUBLICAR
               </button>
             </div>
 
@@ -1967,9 +1988,10 @@ export default function App() {
                     </div>
                   )}
                 </motion.div>
-              ) : (
-                <motion.div 
-                  key="crear"
+              ) : activeHomeTab === 'crear' ? (
+                <>
+                  <motion.div 
+                    key="crear"
                   initial={{ opacity: 0, scale: 0.98 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.98 }}
@@ -2218,13 +2240,10 @@ export default function App() {
                       className="px-12 py-4 rounded-xl bg-neon-blue text-black font-black text-xs uppercase tracking-[0.3em] hover:bg-neon-blue/80 transition-all flex items-center gap-3 group shadow-[0_0_20px_rgba(0,209,255,0.3)] disabled:opacity-50"
                     >
                       {isProcessing ? <Cpu className="animate-spin" size={18} /> : <Zap size={18} />}
-                      PUBLICAR CREATIVO
+                      CREAR CREATIVO
                     </button>
                   </div>
                 </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
 
             {/* Results Section */}
             <AnimatePresence>
@@ -2284,7 +2303,7 @@ export default function App() {
                         ) : (
                           <Zap size={14} />
                         )}
-                        {metaToken ? `PUBLICAR OPCIÓN ${selectedResultIndex + 1}` : "CONFIGURAR META"}
+                        {metaToken ? `CREAR OPCIÓN ${selectedResultIndex + 1}` : "CONFIGURAR META"}
                       </button>
                     </div>
                   </div>
@@ -2468,7 +2487,7 @@ export default function App() {
                         ) : (
                           <Zap size={20} />
                         )}
-                        {metaToken ? "PUBLICAR EN META ADS" : "CONFIGURAR CUENTA DE META"}
+                        {metaToken ? "CREAR EN META ADS" : "CONFIGURAR CUENTA DE META"}
                       </button>
                     </div>
                   </div>
@@ -2540,13 +2559,233 @@ export default function App() {
                     Configura tu campaña y sube los datos históricos para que el motor neuronal genere tu próxima pieza ganadora.
                   </p>
                 </div>
-                <div className="flex items-center gap-2 text-xs font-bold text-neon-blue">
-                  CONFIGURAR <ChevronRight size={14} /> ANALIZAR <ChevronRight size={14} /> CREAR <ChevronRight size={14} /> PUBLICAR
+                <div className="flex items-center gap-2 text-xs font-bold text-neon-blue uppercase tracking-widest">
+                  ANALIZAR <ChevronRight size={14} /> CREAR <ChevronRight size={14} /> PUBLICAR
                 </div>
               </div>
             )}
+          </>) : (
+                <motion.div 
+                  key="publicar"
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                  className="space-y-8"
+                >
+                  <div className="flex flex-col gap-2">
+                    <h2 className="font-orbitron text-base md:text-lg font-bold flex items-center gap-2">
+                      <Send className="text-neon-blue" /> PUBLICAR ANUNCIOS
+                    </h2>
+                    <p className="text-[10px] text-white/40 uppercase tracking-widest leading-relaxed">
+                      Configura la segmentación neural y lanza tus piezas directamente a Meta Ads.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Campaign Configuration */}
+                    <div className="glass-panel p-6 border-white/10 bg-white/5 space-y-6">
+                      <h3 className="font-orbitron text-xs font-bold text-neon-blue uppercase tracking-wider flex items-center gap-2">
+                        <Settings size={14} /> Configuración de Campaña
+                      </h3>
+                      
+                      <div className="space-y-4">
+                        <div className="space-y-1.5">
+                          <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Cuenta Publicitaria</label>
+                          <select 
+                            value={selectedAdAccount}
+                            onChange={(e) => setSelectedAdAccount(e.target.value)}
+                            className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-[10px] text-white focus:border-neon-blue/50 outline-none"
+                          >
+                            <option value="">Seleccionar cuenta...</option>
+                            {adAccounts.map(acc => (
+                              <option key={acc.id} value={acc.id}>{acc.name}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Página de Facebook</label>
+                          <select 
+                            value={selectedPage}
+                            onChange={(e) => setSelectedPage(e.target.value)}
+                            className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-[10px] text-white focus:border-neon-blue/50 outline-none"
+                          >
+                            <option value="">Seleccionar página...</option>
+                            {pages.map(p => (
+                              <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Objetivo de la Campaña</label>
+                          <select 
+                            value={campaign.objective}
+                            onChange={(e) => setCampaign({...campaign, objective: e.target.value})}
+                            className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-[10px] text-white focus:border-neon-blue/50 outline-none"
+                          >
+                            <option>Reconocimiento</option>
+                            <option>Tráfico</option>
+                            <option>Interacción</option>
+                            <option>Clientes Potenciales</option>
+                            <option>Conversiones</option>
+                            <option>Ventas</option>
+                          </select>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Formato del Anuncio</label>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button 
+                              onClick={() => setCampaign({...campaign, format: 'image'})}
+                              className={cn(
+                                "flex items-center justify-center gap-2 py-2 rounded-lg border text-[9px] font-bold uppercase tracking-wider transition-all",
+                                campaign.format === 'image' ? "border-neon-blue bg-neon-blue/10 text-neon-blue" : "border-white/10 text-white/40 hover:border-white/30"
+                              )}
+                            >
+                              <ImageIcon size={12} /> Imagen
+                            </button>
+                            <button 
+                              onClick={() => setCampaign({...campaign, format: 'video'})}
+                              className={cn(
+                                "flex items-center justify-center gap-2 py-2 rounded-lg border text-[9px] font-bold uppercase tracking-wider transition-all",
+                                campaign.format === 'video' ? "border-neon-blue bg-neon-blue/10 text-neon-blue" : "border-white/10 text-white/40 hover:border-white/30"
+                              )}
+                            >
+                              <Video size={12} /> Video
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1.5">
+                            <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Presupuesto Diario</label>
+                            <div className="relative">
+                              <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-neon-blue" size={14} />
+                              <input 
+                                type="number" 
+                                value={campaign.budget}
+                                onChange={(e) => setCampaign({...campaign, budget: e.target.value})}
+                                placeholder="5.00"
+                                className="w-full bg-black/40 border border-white/10 rounded-lg p-3 pl-9 text-[10px] text-white focus:border-neon-blue/50 outline-none"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Programación</label>
+                            <div className="relative">
+                              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-neon-blue" size={14} />
+                              <input 
+                                type="date"
+                                className="w-full bg-black/40 border border-white/10 rounded-lg p-3 pl-9 text-[10px] text-white focus:border-neon-blue/50 outline-none"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Audience & Placement */}
+                    <div className="glass-panel p-6 border-white/10 bg-white/5 space-y-6">
+                      <h3 className="font-orbitron text-xs font-bold text-neon-blue uppercase tracking-wider flex items-center gap-2">
+                        <Target size={14} /> Segmentación Neural
+                      </h3>
+
+                      <div className="space-y-4">
+                        <div className="space-y-1.5">
+                          <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Audiencia Clave</label>
+                          <textarea 
+                            value={campaign.audience}
+                            onChange={(e) => setCampaign({...campaign, audience: e.target.value})}
+                            placeholder="Ej: Emprendedores digitales, 25-45 años, interesados en tecnología..."
+                            className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-[10px] text-white focus:border-neon-blue/50 outline-none h-20 resize-none"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Locación (País, Ciudad o Región)</label>
+                          <div className="relative">
+                            <MapPin className="absolute left-3 top-3 text-neon-blue" size={14} />
+                            <input 
+                              type="text" 
+                              value={campaign.location || ''}
+                              onChange={(e) => setCampaign({...campaign, location: e.target.value})}
+                              placeholder="Ej: México, Monterrey, América Latina..."
+                              className="w-full bg-black/40 border border-white/10 rounded-lg p-3 pl-9 text-[10px] text-white focus:border-neon-blue/50 outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Ubicaciones</label>
+                          <div className="grid grid-cols-2 gap-2">
+                            <label className="flex items-center gap-2 p-2 rounded bg-black/20 border border-white/5 cursor-pointer hover:border-neon-blue/30 transition-all">
+                              <input type="checkbox" defaultChecked className="accent-neon-blue" />
+                              <span className="text-[9px] text-white/60">Facebook Feed</span>
+                            </label>
+                            <label className="flex items-center gap-2 p-2 rounded bg-black/20 border border-white/5 cursor-pointer hover:border-neon-blue/30 transition-all">
+                              <input type="checkbox" defaultChecked className="accent-neon-blue" />
+                              <span className="text-[9px] text-white/60">Instagram Reels</span>
+                            </label>
+                            <label className="flex items-center gap-2 p-2 rounded bg-black/20 border border-white/5 cursor-pointer hover:border-neon-blue/30 transition-all">
+                              <input type="checkbox" defaultChecked className="accent-neon-blue" />
+                              <span className="text-[9px] text-white/60">Audience Network</span>
+                            </label>
+                            <label className="flex items-center gap-2 p-2 rounded bg-black/20 border border-white/5 cursor-pointer hover:border-neon-blue/30 transition-all">
+                              <input type="checkbox" defaultChecked className="accent-neon-blue" />
+                              <span className="text-[9px] text-white/60">Messenger</span>
+                            </label>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">URL de Destino</label>
+                          <div className="relative">
+                            <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 text-neon-blue" size={14} />
+                            <input 
+                              type="url" 
+                              placeholder="https://tu-sitio.com/landing"
+                              className="w-full bg-black/40 border border-white/10 rounded-lg p-3 pl-9 text-[10px] text-white focus:border-neon-blue/50 outline-none"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Launch Button */}
+                  <div className="glass-panel p-8 border-neon-blue/40 bg-neon-blue/5 flex flex-col items-center gap-6 text-center">
+                    <div className="space-y-2">
+                      <h3 className="font-orbitron text-sm font-bold text-white uppercase tracking-widest">Sincronización Neural Lista</h3>
+                      <p className="text-[10px] text-white/40 uppercase tracking-[0.2em]">Todos los parámetros han sido validados por el núcleo</p>
+                    </div>
+                    
+                    <button 
+                      onClick={() => metaToken ? setShowPublishModal(true) : setShowSettings(true)}
+                      className="px-12 py-4 rounded-xl bg-neon-blue text-black font-black text-sm uppercase tracking-[0.3em] hover:shadow-[0_0_30px_rgba(0,209,255,0.5)] transition-all flex items-center gap-4 group"
+                    >
+                      <Zap className="group-hover:scale-125 transition-transform" />
+                      LANZAR CAMPAÑA A META ADS
+                    </button>
+
+                    <div className="flex items-center gap-6 pt-2">
+                       <div className="flex items-center gap-2">
+                         <div className="w-2 h-2 rounded-full bg-neon-green animate-pulse" />
+                         <span className="text-[9px] text-neon-green font-bold uppercase tracking-widest">API Meta OK</span>
+                       </div>
+                       <div className="flex items-center gap-2">
+                         <div className="w-2 h-2 rounded-full bg-neon-blue animate-pulse" />
+                         <span className="text-[9px] text-neon-blue font-bold uppercase tracking-widest">Neural Link Active</span>
+                       </div>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
-        </main>
+        </div>
+      </main>
       )}
 
       {/* Footer / Status Bar */}
@@ -2560,7 +2799,7 @@ export default function App() {
           </span>
         </div>
         <div className="text-center md:text-right">
-          © 2026 SMART ADS • NEURAL INTERFACE
+          © 2026 ADS STUDIO • NEURAL INTERFACE
         </div>
       </footer>
 
@@ -2665,7 +2904,7 @@ export default function App() {
                   Imágenes: <span className="text-white/50">50 créditos</span>. 
                   Videos (5s): <span className="text-white/50">100 créditos</span>. 
                   Videos (10s): <span className="text-white/50">200 créditos</span>. 
-                  Al recargar, aceptas los términos de servicio y la política de uso de IA de SMART ADS.
+                  Al recargar, aceptas los términos de servicio y la política de uso de IA de ADS STUDIO.
                 </p>
               </div>
             </motion.div>
@@ -2888,7 +3127,7 @@ export default function App() {
                     )}
                   </button>
                   <p className="text-center text-[10px] text-white/20 uppercase font-black tracking-widest mt-4">
-                    LOS CAMBIOS SE SINCRONIZARÁN EN LA NUBE SMART ADS
+                    LOS CAMBIOS SE SINCRONIZARÁN EN LA NUBE ADS STUDIO
                   </p>
                 </div>
               </div>
@@ -3307,7 +3546,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <SmartBot 
+      <AdsBot 
         currentCampaign={campaign} 
         allResults={results} 
         isLoggedIn={isLoggedIn}

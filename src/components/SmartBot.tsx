@@ -11,7 +11,7 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-interface AdsBotProps {
+interface SmartBotProps {
   currentCampaign?: CampaignData;
   allResults?: AdResult[];
   isLoggedIn?: boolean;
@@ -19,7 +19,7 @@ interface AdsBotProps {
   errorNotification?: string | null;
 }
 
-export const AdsBot: React.FC<AdsBotProps> = ({ currentCampaign, allResults = [], isLoggedIn, userName, errorNotification }) => {
+export const SmartBot: React.FC<SmartBotProps> = ({ currentCampaign, allResults = [], isLoggedIn, userName, errorNotification }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [bubbleMessage, setBubbleMessage] = useState<string | null>(null);
   const lastResultsCount = useRef(0);
@@ -40,8 +40,8 @@ export const AdsBot: React.FC<AdsBotProps> = ({ currentCampaign, allResults = []
   useEffect(() => {
     if (messages.length === 0) {
       const welcomeMsg = isLoggedIn && userName 
-        ? `¡Hola, ${userName.split(' ')[0]}! Soy Ads Bot. Estoy aquí para ayudarte a maximizar el impacto de tus anuncios. ¿En qué puedo asesorarte hoy?`
-        : '¡Hola! Soy Ads Bot. Estoy aquí para ayudarte a maximizar el impacto de tus anuncios. ¿En qué puedo asesorarte hoy?';
+        ? `¡Hola, ${userName.split(' ')[0]}! Soy Smart Bot. Estoy aquí para ayudarte a maximizar el impacto de tus anuncios. ¿En qué puedo asesorarte hoy?`
+        : '¡Hola! Soy Smart Bot. Estoy aquí para ayudarte a maximizar el impacto de tus anuncios. ¿En qué puedo asesorarte hoy?';
       setMessages([{ role: 'model', text: welcomeMsg }]);
     }
   }, [isLoggedIn, userName, messages.length]);
@@ -145,7 +145,7 @@ export const AdsBot: React.FC<AdsBotProps> = ({ currentCampaign, allResults = []
             className="mb-4 mr-2 bg-black/90 backdrop-blur-xl border border-neon-blue/60 p-4 rounded-2xl rounded-br-none shadow-[0_0_30px_rgba(0,209,255,0.3)] max-w-[320px] sm:max-w-[450px] overflow-hidden"
           >
             <div className="text-[11px] text-neon-blue font-bold uppercase tracking-widest mb-2 flex items-center gap-2">
-              <Logo size={24} /> Ads Bot
+              <Logo size={24} /> Smart Bot
             </div>
             <div className="max-h-[150px] overflow-y-auto pr-1">
               <p className="text-xs text-white/95 leading-relaxed break-words font-medium">{bubbleMessage}</p>
@@ -169,7 +169,7 @@ export const AdsBot: React.FC<AdsBotProps> = ({ currentCampaign, allResults = []
                   <Logo size={32} />
                 </div>
                 <div>
-                  <h3 className="font-orbitron text-sm font-bold tracking-widest text-neon-blue">ADS BOT</h3>
+                  <h3 className="font-orbitron text-sm font-bold tracking-widest text-neon-blue">SMART BOT</h3>
                   <div className="flex items-center gap-1.5">
                     <div className="w-1.5 h-1.5 rounded-full bg-neon-green animate-pulse" />
                     <span className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Neural Assistant</span>
@@ -203,7 +203,7 @@ export const AdsBot: React.FC<AdsBotProps> = ({ currentCampaign, allResults = []
                     {msg.text}
                   </div>
                   <span className="text-[8px] uppercase tracking-widest text-white/20 mt-1 font-bold">
-                    {msg.role === 'user' ? 'Tú' : 'Ads Bot'}
+                    {msg.role === 'user' ? 'Tú' : 'Smart Bot'}
                   </span>
                 </div>
               ))}

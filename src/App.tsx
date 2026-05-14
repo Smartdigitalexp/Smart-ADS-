@@ -55,7 +55,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { analyzeAndGenerate, generateCreativeConcept, generateVideoFromPrompt, optimizeProductReference, analyzePerformanceData } from './services/geminiService';
 import { AdResult, CampaignData, CSVRow, HistoryItem, UserProfile, AnalysisReport } from './types';
-import { AdsBot } from './components/AdsBot';
+import { SmartBot } from './components/SmartBot';
 import { Logo } from './components/Logo';
 import {
   ResponsiveContainer,
@@ -140,7 +140,6 @@ export default function App() {
     destinationUrl: '',
     pixelId: '',
     whatsappNumber: '',
-    currency: 'USD',
     facebookEnabled: true,
     instagramEnabled: true,
     scheduleStart: '',
@@ -1275,7 +1274,7 @@ export default function App() {
             </div>
             <div className="block">
               <h1 className="font-orbitron text-xl sm:text-lg md:text-2xl font-black tracking-widest neon-text leading-none whitespace-nowrap">
-                ADS STUDIO
+                SMART ADS
               </h1>
               <p className="block text-[8px] sm:text-[10px] md:text-sm font-medium text-neon-blue/70 tracking-[0.05em] sm:tracking-[0.08em] md:tracking-[0.11em] uppercase mt-1 leading-none">
                 Creative Neural Engine v2.0
@@ -1821,7 +1820,7 @@ export default function App() {
                 >
                   <div className="flex flex-col gap-2">
                     <h2 className="font-orbitron text-base md:text-lg font-bold flex items-center gap-2">
-                      <TrendingUp className="text-neon-blue" /> ADS ANALYTICS
+                      <TrendingUp className="text-neon-blue" /> ANALIZAR ANUNCIOS
                     </h2>
                     <p className="text-[10px] text-white/40 uppercase tracking-widest leading-relaxed">
                       Optimiza tu estrategia neural procesando archivos de rendimiento histórico.
@@ -2008,7 +2007,7 @@ export default function App() {
                           <ChevronRight className="rotate-180" size={16} />
                         </button>
                       )}
-                      <Zap className="text-neon-blue" /> {activeAssetTool === 'campaign' ? 'ADS STUDIO' : activeAssetTool.toUpperCase().replace('_', ' ')}
+                      <Zap className="text-neon-blue" /> {activeAssetTool === 'campaign' ? 'CREAR ANUNCIOS' : activeAssetTool.toUpperCase().replace('_', ' ')}
                     </h2>
                     <p className="text-[10px] text-white/40 uppercase tracking-widest leading-relaxed">
                       Transforma tu visión en piezas publicitarias de alto impacto con IA Neural.
@@ -2688,12 +2687,27 @@ export default function App() {
 
                           <div className="space-y-1.5">
                             <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Programación</label>
-                            <div className="relative">
-                              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-neon-blue" size={14} />
-                              <input 
-                                type="date"
-                                className="w-full bg-black/40 border border-white/10 rounded-lg p-3 pl-9 text-[10px] text-white focus:border-neon-blue/50 outline-none"
-                              />
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="relative">
+                                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-neon-blue" size={14} />
+                                <input 
+                                  type="date"
+                                  value={campaign.scheduleStart}
+                                  onChange={(e) => setCampaign({...campaign, scheduleStart: e.target.value})}
+                                  className="w-full bg-black/40 border border-white/10 rounded-lg p-3 pl-9 text-[10px] text-white focus:border-neon-blue/50 outline-none [color-scheme:dark]"
+                                />
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[8px] text-white/20 uppercase font-bold">Inicio</span>
+                              </div>
+                              <div className="relative">
+                                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-neon-pink" size={14} />
+                                <input 
+                                  type="date"
+                                  value={campaign.scheduleEnd}
+                                  onChange={(e) => setCampaign({...campaign, scheduleEnd: e.target.value})}
+                                  className="w-full bg-black/40 border border-white/10 rounded-lg p-3 pl-9 text-[10px] text-white focus:border-neon-blue/50 outline-none [color-scheme:dark]"
+                                />
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[8px] text-white/20 uppercase font-bold">Fin</span>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -2780,7 +2794,7 @@ export default function App() {
                       className="px-12 py-4 rounded-xl bg-neon-blue text-black font-black text-sm uppercase tracking-[0.3em] hover:shadow-[0_0_30px_rgba(0,209,255,0.5)] transition-all flex items-center gap-4 group"
                     >
                       <Zap className="group-hover:scale-125 transition-transform" />
-                      LANZAR CAMPAÑA A META ADS
+                      PUBLICAR EN META ADS
                     </button>
 
                     <div className="flex items-center gap-6 pt-2">
@@ -2813,7 +2827,7 @@ export default function App() {
           </span>
         </div>
         <div className="text-center md:text-right">
-          © 2026 ADS STUDIO • NEURAL INTERFACE
+          © 2026 SMART ADS • NEURAL INTERFACE
         </div>
       </footer>
 
@@ -2918,7 +2932,7 @@ export default function App() {
                   Imágenes: <span className="text-white/50">50 créditos</span>. 
                   Videos (5s): <span className="text-white/50">100 créditos</span>. 
                   Videos (10s): <span className="text-white/50">200 créditos</span>. 
-                  Al recargar, aceptas los términos de servicio y la política de uso de IA de ADS STUDIO.
+                  Al recargar, aceptas los términos de servicio y la política de uso de IA de SMART ADS.
                 </p>
               </div>
             </motion.div>
@@ -3141,7 +3155,7 @@ export default function App() {
                     )}
                   </button>
                   <p className="text-center text-[10px] text-white/20 uppercase font-black tracking-widest mt-4">
-                    LOS CAMBIOS SE SINCRONIZARÁN EN LA NUBE ADS STUDIO
+                    LOS CAMBIOS SE SINCRONIZARÁN EN LA NUBE SMART ADS
                   </p>
                 </div>
               </div>
@@ -3560,7 +3574,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <AdsBot 
+      <SmartBot 
         currentCampaign={campaign} 
         allResults={results} 
         isLoggedIn={isLoggedIn}

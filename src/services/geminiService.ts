@@ -115,7 +115,7 @@ export async function analyzeAndGenerate(
       }
     ],
     config: {
-      systemInstruction: `Eres un Director Creativo Senior y experto en Performance Marketing para ADS STUDIO. Tu misión es transformar briefs básicos en campañas publicitarias de nivel mundial generando MÚLTIPLES VARIANTES ganadoras.
+      systemInstruction: `Eres un Director Creativo Senior y experto en Performance Marketing para SMART ADS. Tu misión es transformar briefs básicos en campañas publicitarias de nivel mundial generando MÚLTIPLES VARIANTES ganadoras.
       DIRECTRICES CRÍTICAS PARA LAS ${variantsCount} OPCIONES:
       1. DIVERSIDAD ESTRATÉGICA: Cada una de las ${variantsCount} opciones debe atacar el ángulo del producto desde una perspectiva diferente pero siempre alineada con el objetivo (${campaign.objective}).
       2. FIDELIDAD ABSOLUTA DEL PRODUCTO: El producto de la referencia visual proporcionada DEBE mantenerse 100% idéntico. No se permiten cambios en etiquetas, colores, formas o detalles técnicos. El producto optimizado en la referencia es la ÚNICA versión válida.

@@ -600,7 +600,7 @@ async function startServer() {
         bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
         targeting: {
           geo_locations: { countries: ['CO'] }, 
-          publisher_platforms: []
+          publisher_platforms: ['facebook', 'instagram']
         },
         status: 'PAUSED',
         destination_type: destinationType
@@ -608,10 +608,78 @@ async function startServer() {
 
       if (promotedObject) adSetData.promoted_object = promotedObject;
 
-      const platforms = [];
-      if (facebookEnabled !== false) platforms.push('facebook');
-      if (instagramEnabled !== false) platforms.push('instagram');
-      adSetData.targeting.publisher_platforms = platforms.length > 0 ? platforms : ['facebook', 'instagram'];
+      // Targeting Advanced Logic
+      const targeting: any = { ...adSetData.targeting };
+      
+      // 1. Location
+      if (req.body.location) {
+        const loc = req.body.location.toLowerCase();
+        const countryMap: Record<string, string> = {
+          'colombia': 'CO', 'méxico': 'MX', 'mexico': 'MX', 'argentina': 'AR', 
+          'chile': 'CL', 'perú': 'PE', 'peru': 'PE', 'españa': 'ES', 'spain': 'ES',
+          'estados unidos': 'US', 'usa': 'US', 'ecuador': 'EC', 'panamá': 'PA',
+          'venezuela': 'VE', 'brasil': 'BR', 'brazil': 'BR', 'panama': 'PA'
+        };
+        
+        if (countryMap[loc]) {
+          targeting.geo_locations = { countries: [countryMap[loc]] };
+        } else if (loc.length === 2) {
+          targeting.geo_locations = { countries: [loc.toUpperCase()] };
+        } else {
+          // If multi-word or not found, we keep CO as default or try to use it as a general search if we had more context
+          // For now, we'll try to find if any key is contained
+          const foundKey = Object.keys(countryMap).find(k => loc.includes(k));
+          if (foundKey) targeting.geo_locations = { countries: [countryMap[foundKey]] };
+        }
+      }
+
+      // 2. Gender
+      if (req.body.gender) {
+        const g = req.body.gender.toLowerCase();
+        if (g.includes('hombre')) targeting.genders = [1];
+        else if (g.includes('mujer')) targeting.genders = [2];
+      }
+
+      // 3. Age
+      if (req.body.ageRange) {
+        const ages = req.body.ageRange.match(/\d+/g);
+        if (ages && ages.length >= 1) {
+          targeting.age_min = parseInt(ages[0]);
+          if (ages.length >= 2) targeting.age_max = parseInt(ages[1]);
+        }
+      }
+
+      // 4. Placements
+      if (req.body.advantagePlacementsEnabled) {
+        // Automatic placements (Advantage+)
+        delete targeting.publisher_platforms;
+      } else {
+        const platforms = [];
+        if (req.body.facebookEnabled !== false) platforms.push('facebook');
+        if (req.body.instagramEnabled !== false) platforms.push('instagram');
+        if (req.body.audienceNetworkEnabled) platforms.push('audience_network');
+        if (req.body.messengerEnabled) platforms.push('messenger');
+        
+        targeting.publisher_platforms = platforms.length > 0 ? platforms : ['facebook', 'instagram'];
+        
+        // Detailed positions
+        const facebook_positions = [];
+        if (req.body.feedEnabled !== false) facebook_positions.push('feed');
+        if (req.body.marketplaceEnabled) facebook_positions.push('marketplace');
+        if (req.body.storiesEnabled) facebook_positions.push('story');
+        if (req.body.reelsEnabled) facebook_positions.push('facebook_reels');
+        if (req.body.instreamEnabled) facebook_positions.push('instream_video');
+        
+        const instagram_positions = [];
+        if (req.body.feedEnabled !== false) instagram_positions.push('stream');
+        if (req.body.storiesEnabled) instagram_positions.push('story');
+        if (req.body.reelsEnabled) instagram_positions.push('reels');
+
+        if (facebook_positions.length > 0) targeting.facebook_positions = facebook_positions;
+        if (instagram_positions.length > 0) targeting.instagram_positions = instagram_positions;
+      }
+
+      adSetData.targeting = targeting;
 
       if (scheduleStart) adSetData.start_time = new Date(scheduleStart).toISOString();
       if (scheduleEnd) adSetData.end_time = new Date(scheduleEnd).toISOString();

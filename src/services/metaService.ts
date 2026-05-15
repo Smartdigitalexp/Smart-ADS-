@@ -93,12 +93,23 @@ export async function publishAd(params: {
   objective: string;
   budget: string;
   audience: string;
+  location?: string;
+  gender?: string;
+  ageRange?: string;
   destinationUrl: string;
   pixelId: string;
   whatsappNumber?: string;
   currency: string;
   facebookEnabled?: boolean;
   instagramEnabled?: boolean;
+  feedEnabled?: boolean;
+  reelsEnabled?: boolean;
+  storiesEnabled?: boolean;
+  marketplaceEnabled?: boolean;
+  instreamEnabled?: boolean;
+  audienceNetworkEnabled?: boolean;
+  messengerEnabled?: boolean;
+  advantagePlacementsEnabled?: boolean;
   scheduleStart?: string;
   scheduleEnd?: string;
 }) {

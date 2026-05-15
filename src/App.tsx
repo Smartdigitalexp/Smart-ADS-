@@ -49,13 +49,14 @@ import {
   Link2,
   MapPin,
   RefreshCcw,
-  Search
+  Search,
+  Wand2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { analyzeAndGenerate, generateCreativeConcept, generateVideoFromPrompt, optimizeProductReference, analyzePerformanceData, generateImageFromPrompt } from './services/geminiService';
+import { analyzeAndGenerate, generateCreativeConcept, generateVideoFromPrompt, optimizeProductReference, analyzePerformanceData, generateImageFromPrompt, enhancePrompt, generateStorytellingPrompt } from './services/geminiService';
 import { AdResult, CampaignData, CSVRow, HistoryItem, UserProfile, AnalysisReport } from './types';
 import { SmartBot } from './components/SmartBot';
 import { Logo } from './components/Logo';
@@ -175,6 +176,7 @@ export default function App() {
   const [selectedResultIndex, setSelectedResultIndex] = useState(0);
   const [copiedType, setCopiedType] = useState<string | null>(null);
   const [isGeneratingConcept, setIsGeneratingConcept] = useState(false);
+  const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
   const [activeHomeTab, setActiveHomeTab] = useState<'analizar' | 'crear' | 'publicar'>('analizar');
   const [activeAssetTool, setActiveAssetTool] = useState<'hub' | 'campaign' | 'generate_img' | 'product_img' | 'animate' | 'edit_img' | 'video_gen'>('hub');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -390,12 +392,42 @@ export default function App() {
         campaign.audience
       );
       setCampaign(prev => ({ ...prev, creativeConcept: concept }));
-      setChatNotification('Concepto neuronal generado con éxito.');
+      setChatNotification('Concepto Neuronal generado (Idea central del anuncio).');
     } catch (error) {
       console.error('Error generating concept:', error);
       setChatNotification('Hubo un error al generar el concepto. Por favor, intenta de nuevo.');
     } finally {
       setIsGeneratingConcept(false);
+    }
+  };
+
+  const handleEnhancePrompt = async () => {
+    const currentPrompt = activeAssetTool === 'campaign' ? campaign.instruction : toolPrompt;
+    
+    setIsEnhancingPrompt(true);
+    try {
+      let toolType: 'image' | 'video' | 'campaign' = 'image';
+      if (activeAssetTool === 'campaign') toolType = 'campaign';
+      else if (['animate', 'video_gen'].includes(activeAssetTool)) toolType = 'video';
+      
+      const enhanced = await enhancePrompt(currentPrompt, toolType, {
+        productName: campaign.productName,
+        objective: campaign.objective,
+        concept: campaign.creativeConcept,
+        audience: campaign.audience
+      });
+      
+      if (activeAssetTool === 'campaign') {
+        setCampaign(prev => ({ ...prev, instruction: enhanced }));
+      } else {
+        setToolPrompt(enhanced);
+      }
+      setChatNotification('IA: Prompt optimizado con detalles profesionales de alto impacto.');
+    } catch (error) {
+      console.error('Error enhancing prompt:', error);
+      setChatNotification('Error al optimizar el prompt. Por favor, verifica tu conexión.');
+    } finally {
+      setIsEnhancingPrompt(false);
     }
   };
 
@@ -592,12 +624,23 @@ export default function App() {
         objective: campaign.objective,
         budget: campaign.budget || '5.00',
         audience: campaign.audience,
+        location: campaign.location,
+        gender: campaign.gender,
+        ageRange: campaign.ageRange,
         destinationUrl: campaign.destinationUrl || '',
         pixelId: campaign.pixelId || '',
         whatsappNumber: campaign.whatsappNumber || '',
         currency: campaign.currency || 'USD',
         facebookEnabled: campaign.facebookEnabled,
         instagramEnabled: campaign.instagramEnabled,
+        feedEnabled: campaign.feedEnabled,
+        reelsEnabled: campaign.reelsEnabled,
+        storiesEnabled: campaign.storiesEnabled,
+        marketplaceEnabled: campaign.marketplaceEnabled,
+        instreamEnabled: campaign.instreamEnabled,
+        audienceNetworkEnabled: campaign.audienceNetworkEnabled,
+        messengerEnabled: campaign.messengerEnabled,
+        advantagePlacementsEnabled: campaign.advantagePlacementsEnabled,
         scheduleStart: campaign.scheduleStart,
         scheduleEnd: campaign.scheduleEnd
       });
@@ -994,64 +1037,21 @@ export default function App() {
     setActiveDurationSelector(null);
     try {
       const currentResult = results[index];
-      let visualRefBase64: string | undefined;
-      let visualRefMimeType: string | undefined;
-
-      if (currentResult.generatedImageUrl && currentResult.generatedImageUrl.startsWith('data:')) {
-        const parts = currentResult.generatedImageUrl.split(',');
-        visualRefBase64 = parts[1];
-        visualRefMimeType = parts[0].split(':')[1].split(';')[0];
-      }
-
-      const videoData = await generateVideoFromPrompt(
+      setActiveAssetTool('animate');
+      setActiveHomeTab('crear');
+      if (currentResult.generatedImageUrl) setVisualPreview(currentResult.generatedImageUrl);
+      const storytellingPrompt = await generateStorytellingPrompt(
         text, 
-        campaign.aspectRatio,
-        visualRefBase64,
-        visualRefMimeType,
-        duration
+        duration, 
+        campaign.audience,
+        currentResult.captions.aida.action
       );
-      if (videoData) {
-        const newResults = [...results];
-        newResults[index] = {
-          ...newResults[index],
-          generatedImageUrl: videoData
-        };
-        setResults(newResults);
-        setChatNotification('¡Video generado desde Storytelling con éxito!');
-
-        // Save modification to history if exists
-        if (currentHistoryId) {
-          try {
-            await setDoc(doc(db, 'history', currentHistoryId), {
-              results: newResults,
-              lastModified: serverTimestamp()
-            }, { merge: true });
-            if (loginEmail) fetchHistory(loginEmail);
-          } catch (err: any) {
-            console.error("Error updating history with video:", err);
-            // Recovery for size limit
-            if (err.message && err.message.includes('maximum allowed size')) {
-              try {
-                const strippedResults = newResults.map(r => ({
-                  ...r,
-                  generatedImageUrl: r.generatedImageUrl?.length > 500000 ? '(Video too large for history)' : r.generatedImageUrl
-                }));
-                await setDoc(doc(db, 'history', currentHistoryId), {
-                  results: strippedResults,
-                  lastModified: serverTimestamp(),
-                  sizeError: true
-                }, { merge: true });
-                if (loginEmail) fetchHistory(loginEmail);
-                setChatNotification('Video generado, pero no se pudo guardar en el historial debido al tamaño del archivo.');
-              } catch (innerErr) {
-                console.error("Critical update error:", innerErr);
-              }
-            }
-          }
-        }
-      } else {
-        setChatNotification('No se pudo generar el video en este momento.');
-      }
+      setToolPrompt(storytellingPrompt);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setChatNotification('¡Cargando prompt profesional en ADS STUDIO!');
+    } catch (error: any) {
+      console.error("Error setting up storytelling video:", error);
+      setChatNotification('Error al preparar el Video Studio.');
     } finally {
       setIsVideoProcessing(null);
     }
@@ -1579,7 +1579,7 @@ export default function App() {
 
             <div className="space-y-2">
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-bold uppercase tracking-wider text-neon-blue">Concepto Creativo</label>
+                <label className="text-xs font-bold uppercase tracking-wider text-neon-blue">Concepto</label>
                 <button 
                   onClick={handleGenerateConcept}
                   disabled={isGeneratingConcept || !campaign.productName}
@@ -1592,18 +1592,8 @@ export default function App() {
               <textarea 
                 value={campaign.creativeConcept}
                 onChange={(e) => setCampaign({...campaign, creativeConcept: e.target.value})}
-                placeholder="Ej: Elegancia futurista con un toque minimalista..."
-                className="w-full bg-black/40 border border-neon-blue/30 rounded-lg px-4 py-2 focus:border-neon-blue outline-none transition-all text-sm h-16 resize-none"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-xs font-bold uppercase tracking-wider text-neon-blue">Instrucciones Visuales</label>
-              <textarea 
-                value={campaign.instruction}
-                onChange={(e) => setCampaign({...campaign, instruction: e.target.value})}
-                placeholder="Ej: Iluminación de estudio, foco en el producto, colores vibrantes..."
-                className="w-full bg-black/40 border border-neon-blue/30 rounded-lg px-4 py-2 focus:border-neon-blue outline-none transition-all text-sm h-20 resize-none"
+                placeholder="Idea central del anuncio: Ej. El futuro del confort en tus pies..."
+                className="w-full bg-black/40 border border-neon-blue/30 rounded-lg px-4 py-2 focus:border-neon-blue outline-none transition-all text-sm h-24 resize-none"
               />
             </div>
 
@@ -2188,9 +2178,19 @@ export default function App() {
 
                           <div className="space-y-3">
                             <div className="space-y-1">
-                              <label className="text-[9px] text-white/30 uppercase tracking-widest font-bold">
-                                {activeAssetTool === 'campaign' ? 'Instrucciones Específicas' : 'Instrucción (Prompt)'}
-                              </label>
+                              <div className="flex items-center justify-between mb-1">
+                                <label className="text-[9px] text-white/30 uppercase tracking-widest font-bold">
+                                  {activeAssetTool === 'campaign' ? 'Instrucciones Específicas' : 'Instrucción (Prompt)'}
+                                </label>
+                                <button 
+                                  onClick={handleEnhancePrompt}
+                                  disabled={isEnhancingPrompt}
+                                  className="flex items-center gap-1.5 text-[8px] font-black text-neon-blue hover:text-white transition-colors disabled:opacity-30 group"
+                                >
+                                  <Wand2 size={10} className={cn("group-hover:rotate-12 transition-transform", isEnhancingPrompt && "animate-pulse")} />
+                                  {isEnhancingPrompt ? 'MEJORANDO...' : 'GENERAR CON IA'}
+                                </button>
+                              </div>
                               <textarea 
                                 value={activeAssetTool === 'campaign' ? campaign.instruction : toolPrompt}
                                 onChange={(e) => activeAssetTool === 'campaign' ? setCampaign({...campaign, instruction: e.target.value}) : setToolPrompt(e.target.value)}
@@ -2589,7 +2589,7 @@ export default function App() {
                                       className="text-[9px] px-3 py-1.5 rounded bg-neon-blue/10 border border-neon-blue/30 text-neon-blue font-bold uppercase tracking-wider hover:bg-neon-blue hover:text-black transition-all flex items-center gap-2 group"
                                     >
                                       <Video size={12} className="group-hover:scale-110 transition-transform" />
-                                      PUBLICAR VIDEO
+                                      CREAR VIDEO
                                     </button>
                                   )}
                                 </div>

@@ -124,10 +124,11 @@ export async function analyzeAndGenerate(
       systemInstruction: `Eres un Director Creativo Senior y experto en Performance Marketing para SMART ADS. Tu misión es transformar briefs básicos en campañas publicitarias de nivel mundial generando MÚLTIPLES VARIANTES ganadoras.
       DIRECTRICES CRÍTICAS PARA LAS ${variantsCount} OPCIONES:
       1. DIVERSIDAD ESTRATÉGICA: Cada una de las ${variantsCount} opciones debe atacar el ángulo del producto desde una perspectiva diferente pero siempre alineada con el objetivo (${campaign.objective}).
-      2. FIDELIDAD ABSOLUTA DEL PRODUCTO: El producto de la referencia visual proporcionada DEBE mantenerse 100% idéntico. No se permiten cambios en etiquetas, colores, formas o detalles técnicos. El producto optimizado en la referencia es la ÚNICA versión válida.
-      3. INTEGRACIÓN PROFESIONAL & STORYTELLING: El producto debe ser el protagonista indiscutible. Para VIDEOS, el visualPrompt debe describir un STORYTELLING dinámico donde el producto se luce en movimiento, con transiciones fluidas y efectos cinematográficos que eleven la propuesta sin alterar el producto.
-      4. AUDIENCIA: En todas las opciones debe aparecer la audiencia visualmente integrada de forma coherente.
-      5. CALIDAD: Cada visualPrompt generado debe ser una obra maestra de composición y detalle.`,
+      2. FIDELIDAD ABSOLUTA DEL PRODUCTO: El producto de la referencia visual proporcionada DEBE mantenerse 100% idéntico en su diseño original, pero debe ser TRATADO COMO UN OBJETO 3D CON VOLUMEN.
+      3. INTEGRACIÓN PROFESIONAL & VOLUMETRÍA: El producto debe ser el protagonista indiscutible. DEBE estar físicamente integrado en la escena con sombras de contacto realistas, reflejos ambientales coherentes y una iluminación que lo envuelva. EVITA representaciones planas o superpuestas. Juega con ángulos de 3/4 o perspectivas dinámicas que resalten su forma tridimensional.
+      4. PERSONIFICACIÓN ACTIVA & CONTEXTUAL: En todas las opciones DEBE aparecer visualmente una representación humana (personaje/modelo) que personifique a la audiencia seleccionada (${campaign.audience}). Esta persona DEBE estar REALIZANDO UNA ACCIÓN PROPIA DE SU ROL (ej: si es un chef, debe estar cortando ingredientes o manejando sartenes; si es un cirujano, debe estar operando con instrumental; si es un creativo, debe estar manipulando una tableta gráfica). No basta con que el personaje esté presente; debe estar ACTIVAMENTE involucrado en su labor profesional dentro de un entorno coherente.
+      5. COMPOSICIÓN BORDE A BORDE (FULL-BLEED): Los visualPrompts deben diseñarse para cubrir el 100% de la superficie del lienzo (${campaign.aspectRatio}). Prohíbe cualquier tipo de marco, borde o franja.
+      6. CALIDAD: Cada visualPrompt generado debe ser una obra maestra de composición y detalle.`,
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
@@ -206,7 +207,12 @@ export async function analyzeAndGenerate(
             videoConfig: {
               aspectRatio: campaign.aspectRatio === "9:16" ? "9:16" : campaign.aspectRatio === "16:9" ? "16:9" : "1:1"
             },
-            systemInstruction: `Eres un Director de Fotografía experto. Genera un video cinematográfico de ALTA CALIDAD y MÁXIMA RESOLUCIÓN. IMPORTANTE: El video debe llenar COMPLETAMENTE el encuadre de ${campaign.aspectRatio} sin ninguna franja negra, borde o letterboxing. El contenido debe ocupar todo el lienzo asignado.`
+            systemInstruction: `Eres un Director de Fotografía experto. Genera un video cinematográfico de ALTA CALIDAD y MÁXIMA RESOLUCIÓN. 
+            REGLAS CRÍTICAS DE ENCUADRE Y ACCIÓN:
+            1. El video DEBE ocupar el 100% del lienzo (${campaign.aspectRatio}) de forma NATIVA. Cero bordes negros, cero franjas.
+            2. Prohibido: letterboxing, pillarboxing o cualquier marco. La imagen debe ser FULL-BLEED (sangrado total).
+            3. PERSONIFICACIÓN ACTIVA: El sujeto (audiencia) debe estar REALIZANDO una acción física relacionada con su profesión o estilo de vida.
+            4. Si el contenido no llena el espacio, amplía la cámara o el fondo para asegurar cobertura de borde a borde.`
           } as any
         });
 
@@ -222,7 +228,11 @@ export async function analyzeAndGenerate(
             imageConfig: {
               aspectRatio: campaign.aspectRatio === "9:16" ? "9:16" : campaign.aspectRatio === "16:9" ? "16:9" : "1:1"
             },
-            systemInstruction: `Genera una imagen publicitaria de ALTA CALIDAD que llene COMPLETAMENTE el lienzo de ${campaign.aspectRatio} sin ninguna franja negra, borde o letterboxing. Máximo detalle y resolución.`
+            systemInstruction: `Genera una imagen publicitaria de ALTA CALIDAD. 
+            REGLAS CRÍTICAS:
+            1. ENCUADRE TOTAL: El contenido debe llenar el 100% del área (${campaign.aspectRatio}) sin ningún margen, borde o franja. Full-bleed obligatorio.
+            2. PERSONIFICACIÓN ACTIVA: El personaje de la audiencia debe estar EJECUTANDO una acción propia de su contexto (ej: operando, diseñando, cocinando).
+            3. TRIDIMENSIONALIDAD: El producto debe tener peso, sombras de contacto y profundidad 3D real integrada en el entorno.`
           } as any
         });
 
@@ -316,17 +326,61 @@ export async function optimizeProductReference(
   return imagePart?.inlineData ? `data:image/png;base64,${imagePart.inlineData.data}` : "";
 }
 
+export async function generateStorytellingPrompt(
+  storytellingText: string,
+  duration: 5 | 10 = 5,
+  audience?: string,
+  cta?: string
+): Promise<string> {
+  const promptResponse = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: `
+    STORYTELLING / SCRIPT:
+    "${storytellingText}"
+    
+    CALL TO ACTION FINAL:
+    "${cta || ''}"
+    
+    AUDIENCIA: ${audience || 'General'}
+    DURACIÓN: ${duration} segundos.
+    
+    TAREA:
+    Eres un Director de Cine y Experto en VFX. Transforma el storytelling anterior en un PROMPT TÉCNICO DE VIDEO de altísima calidad para una IA de generación de video (como Luma o Sora).
+    
+    EL PROMPT DEBE INCLUIR EXPLÍCITAMENTE ESTOS 4 PILARES:
+    1. EFECTO AVATAR & DIÁLOGO (CRÍTICO): Indica que el personaje principal (que personifica a la audiencia) debe estar REALIZANDO LIP-SYNC (sincronización labial) de TODO el libreto, INCLUYENDO EL CALL TO ACTION AL FINAL. El personaje debe hablar a cámara o en su entorno como si estuviera narrando la historia y cerrando con el CTA.
+    2. NARRACIÓN TTS INTEGRADA: Describe la voz (ej: voz profunda, cálida, profesional) que narra el storytelling y el CTA a lo largo de los ${duration} segundos.
+    3. DISEÑO SONORO CINEMATOGRÁFICO: Describe los foley (sonidos de fondo: el teclado, el viento, herramientas) y una música ambient/epic equilibrada que sube de intensidad hacia el cierre del CTA.
+    4. COMPOSICIÓN & MOVIMIENTO: Movimientos de cámara dinámicos (dolly zoom, pan, tilt) que sigan la acción del personaje. Cobertura FULL-BLEED (borde a borde).
+    
+    Responde únicamente con el prompt técnico resultante en ESPAÑOL, fusionando visuales, audio y lipsync en una sola narrativa descriptiva.
+    `
+  });
+  return promptResponse.text?.trim() || "";
+}
+
 export async function generateVideoFromPrompt(
   prompt: string, 
   aspectRatio: string = '1:1',
   visualBase64?: string,
   visualMimeType?: string,
-  duration: 5 | 10 = 5
+  duration: 5 | 10 = 5,
+  isStorytelling: boolean = false,
+  storytellingText?: string,
+  audience?: string,
+  cta?: string
 ): Promise<string> {
+  let finalPrompt = prompt;
+
+  // If it's a storytelling video, we use the helper
+  if (isStorytelling && storytellingText) {
+    finalPrompt = await generateStorytellingPrompt(storytellingText, duration, audience, cta);
+  }
+
   const contents = [
     {
       parts: [
-        { text: prompt },
+        { text: finalPrompt },
         ...(visualBase64 && visualMimeType ? [{
           inlineData: {
             data: visualBase64,
@@ -345,7 +399,11 @@ export async function generateVideoFromPrompt(
         aspectRatio: aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : "1:1",
         durationSeconds: duration
       },
-      systemInstruction: `Eres un experto cinematográfico. Toma la instrucción del usuario y amplíala para generar un video de ALTA RESOLUCIÓN, con iluminación profesional, texturas detalladas y composición premium. El resultado debe llenar COMPLETAMENTE el encuadre solicitado de ${aspectRatio} sin franjas negras ni bordes. El contenido debe expandirse por todo el lienzo.`
+      systemInstruction: `Eres un experto cinematográfico de élite. Genera un video de ALTA RESOLUCIÓN con composición premium.
+      REGLAS DE ORO:
+      1. ENCUADRE FULL-FRAME: El video debe expandirse por TODO el lienzo (${aspectRatio}) sin excepción. Cero bordes.
+      2. PERSONIFICACIÓN ACTIVA & AVATAR: El personaje debe estar vivo, moviéndose y hablando (avatar lip-sync) si el prompt lo sugiere.
+      3. CALIDAD 8K: Texturas realistas y movimientos fluidos.`
     } as any
   });
 
@@ -380,7 +438,9 @@ export async function generateImageFromPrompt(
       imageConfig: {
         aspectRatio: aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : "1:1"
       },
-      systemInstruction: `Genera una imagen publicitaria premium de ALTA CALIDAD. Toma la base del usuario y elévala con detalles de iluminación de estudio, texturas realistas y una atmósfera profesional cinematográfica. El resultado debe llenar COMPLETAMENTE el encuadre de ${aspectRatio} sin ningún tipo de franjas negras, bordes blancos o letterboxing. Resolución máxima.`
+      systemInstruction: `Genera una imagen publicitaria premium. 
+      REGLA DE ORO (ENCUADRE): La imagen debe ser FULL-BLEED, llenando el 100% de la relación (${aspectRatio}). CERO bordes, marcos o franjas. No dejes espacio vacío en los bordes.
+      REGLA DE PERSONIFICACIÓN ACTIVA: Incluye a la audiencia objetivo REALIZANDO una acción física y real propia de su contexto profesional o de estilo de vida, integrada orgánicamente con el producto.`
     } as any
   });
 
@@ -409,4 +469,46 @@ export async function generateCreativeConcept(
   });
 
   return response.text?.trim() || "";
+}
+
+export async function enhancePrompt(
+  prompt: string,
+  toolType: 'image' | 'video' | 'campaign',
+  context?: { productName?: string, objective?: string, concept?: string, audience?: string }
+): Promise<string> {
+  const toolContext = {
+    image: "una imagen publicitaria estática de nivel premium",
+    video: "un video publicitario cinematográfico con movimiento dinámico",
+    campaign: "una serie de anuncios comerciales de alto impacto"
+  };
+
+  const extraInfo = context ? `
+    CONTEXTO DE LA CAMPAÑA:
+    - Producto: ${context.productName || 'N/A'}
+    - Objetivo: ${context.objective || 'N/A'}
+    - Concepto: ${context.concept || 'N/A'}
+    - Audiencia: ${context.audience || 'N/A'}
+  ` : '';
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: `
+    ${extraInfo}
+    Prompt base o idea del usuario: "${prompt || 'Generar una idea creativa desde cero'}"
+    
+    TAREA:
+    Eres un Director Creativo y Experto en Prompt Engineering para marketing de lujo.
+    Transforma el prompt base (o crea uno nuevo si está vacío) en una instrucción altamente detallada para generar ${toolContext[toolType]}.
+    
+    LA INSTRUCCIÓN GENERADA DEBE INCLUIR:
+    1. Personificación Activa de la Audiencia (CRÍTICO): Siempre incluye a un personaje que represente a la audiencia (${context?.audience || 'la audiencia objetivo'}) REALIZANDO UNA ACCIÓN FÍSICA PROPIA de su rol (ej: "Digital Designer trabajando en su equipo", "Cirujano operando"). No debe estar posando, debe participar en la acción del contexto.
+    2. Integración 3D y Volumen: El producto DEBE ser un objeto 3D sólido con profundidad, sombras de contacto densas y reflejos realistas.
+    3. Composición Full-Bleed: Asegura que el encuadre llene el 100% del lienzo, de borde a borde, sin ningún tipo de margen o franja negra. Zoom ligeramente in si es necesario para garantizar cobertura total.
+    4. Iluminación y Texturas: Calidad cinematográfica 8k.
+    
+    REGLA: Responde ÚNICAMENTE con el prompt expandido en español. Prohíbe explícitamente bordes y marcos. Enfatiza la acción del personaje.
+    `
+  });
+
+  return response.text?.trim() || prompt;
 }

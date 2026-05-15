@@ -26,6 +26,7 @@ export interface CampaignData {
   format: 'image' | 'video';
   aspectRatio: string;
   creativeConcept: string;
+  instruction: string;
   audience: string;
   location?: string;
   videoDuration?: 5 | 10;
@@ -36,6 +37,18 @@ export interface CampaignData {
   currency?: string;
   facebookEnabled?: boolean;
   instagramEnabled?: boolean;
+  feedEnabled?: boolean;
+  reelsEnabled?: boolean;
+  storiesEnabled?: boolean;
+  marketplaceEnabled?: boolean;
+  notificationsEnabled?: boolean;
+  instreamEnabled?: boolean;
+  audienceNetworkEnabled?: boolean;
+  messengerEnabled?: boolean;
+  advantagePlacementsEnabled?: boolean;
+  advantageAudienceEnabled?: boolean;
+  gender?: string;
+  ageRange?: string;
   scheduleStart?: string;
   scheduleEnd?: string;
 }

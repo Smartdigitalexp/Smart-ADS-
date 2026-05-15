@@ -84,6 +84,7 @@ export async function analyzeAndGenerate(
             Producto: ${campaign.productName}
             Objetivo: ${campaign.objective}
             Concepto Creativo: ${campaign.creativeConcept}
+            Instrucciones Visuales: ${campaign.instruction}
             Audiencia: ${campaign.audience}
             Formato: ${campaign.format}
             Relación de Aspecto: ${campaign.aspectRatio}
@@ -94,7 +95,8 @@ export async function analyzeAndGenerate(
 
             TAREA:
             Genera ${variantsCount} OPCIONES de anuncios completamente distintas para esta campaña.
-            Cada opción debe tener un enfoque creativo único basado en el concepto del cliente pero elevado profesionalmente.
+            Cada opción debe tener un enfoque creativo único basado en el concepto y las instrucciones proporcionadas, pero elevando la calidad técnica y estética.
+            Si el usuario proporciona una instrucción básica, amplíala con detalles sobre iluminación cinematográfica, estilo visual profesional de alta gama, composición de cámara y texturas de ultra-resolución para maximizar el impacto publicitario, siempre alineado con la visión del usuario.
             Todas las respuestas de texto (concept, headline, captions, analysis) deben estar en español.
             No menciones los nombres de las secciones (Atención, Interés, etc) dentro del texto de los captions, la estructura JSON ya los separa.
 
@@ -343,7 +345,7 @@ export async function generateVideoFromPrompt(
         aspectRatio: aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : "1:1",
         durationSeconds: duration
       },
-      systemInstruction: `Eres un experto cinematográfico. Genera un video de ALTA RESOLUCIÓN que llene COMPLETAMENTE el encuadre solicitado de ${aspectRatio} sin franjas negras ni bordes. El contenido debe expandirse por todo el lienzo.`
+      systemInstruction: `Eres un experto cinematográfico. Toma la instrucción del usuario y amplíala para generar un video de ALTA RESOLUCIÓN, con iluminación profesional, texturas detalladas y composición premium. El resultado debe llenar COMPLETAMENTE el encuadre solicitado de ${aspectRatio} sin franjas negras ni bordes. El contenido debe expandirse por todo el lienzo.`
     } as any
   });
 
@@ -378,7 +380,7 @@ export async function generateImageFromPrompt(
       imageConfig: {
         aspectRatio: aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : "1:1"
       },
-      systemInstruction: `Genera una imagen publicitaria premium de ALTA CALIDAD. El resultado debe llenar COMPLETAMENTE el encuadre de ${aspectRatio} sin ningún tipo de franjas negras, bordes blancos o letterboxing. Resolución máxima.`
+      systemInstruction: `Genera una imagen publicitaria premium de ALTA CALIDAD. Toma la base del usuario y elévala con detalles de iluminación de estudio, texturas realistas y una atmósfera profesional cinematográfica. El resultado debe llenar COMPLETAMENTE el encuadre de ${aspectRatio} sin ningún tipo de franjas negras, bordes blancos o letterboxing. Resolución máxima.`
     } as any
   });
 

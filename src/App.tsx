@@ -131,10 +131,11 @@ const AssetToolCard = ({ icon, title, desc, onClick, active }: { icon: any, titl
 export default function App() {
   const [campaign, setCampaign] = useState<CampaignData>({
     productName: '',
-    objective: 'Conversión',
+    objective: 'Ventas',
     format: 'image',
     aspectRatio: '1:1',
     creativeConcept: '',
+    instruction: '',
     audience: '',
     videoDuration: 5,
     budget: '5.00',
@@ -144,7 +145,19 @@ export default function App() {
     whatsappNumber: '',
     facebookEnabled: true,
     instagramEnabled: true,
-    scheduleStart: '',
+    feedEnabled: true,
+    reelsEnabled: true,
+    storiesEnabled: true,
+    marketplaceEnabled: false,
+    notificationsEnabled: false,
+    instreamEnabled: false,
+    audienceNetworkEnabled: false,
+    messengerEnabled: false,
+    advantagePlacementsEnabled: true,
+    advantageAudienceEnabled: true,
+    gender: 'Todos',
+    ageRange: '18-65+',
+    scheduleStart: new Date().toISOString().split('T')[0],
     scheduleEnd: ''
   });
 
@@ -1314,7 +1327,7 @@ export default function App() {
             {isLoggedIn && (
               <button 
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                className="lg:hidden p-2 text-neon-blue hover:bg-neon-blue/10 rounded-lg transition-colors"
+                className="p-2 text-neon-blue hover:bg-neon-blue/10 rounded-lg transition-colors"
               >
                 {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
               </button>
@@ -1451,8 +1464,8 @@ export default function App() {
             className="glass-panel p-10 w-full max-w-md space-y-8 relative z-10"
           >
             <div className="text-center space-y-2">
-              <div className="w-20 h-20 rounded-2xl border-2 border-neon-blue bg-black mx-auto flex items-center justify-center shadow-[0_0_30px_rgba(0,209,255,0.4)]">
-                <Bot size={48} className="text-neon-blue" />
+              <div className="w-24 h-24 rounded-2xl border-2 border-neon-blue bg-black mx-auto flex items-center justify-center shadow-[0_0_30px_rgba(0,209,255,0.4)] overflow-hidden">
+                <Logo size={80} />
               </div>
               <h2 className="font-orbitron text-2xl font-black tracking-widest mt-4">ACCESO NEURAL</h2>
               <p className="text-xs text-white/40 uppercase tracking-[0.2em]">Identifícate para comenzar</p>
@@ -1518,59 +1531,24 @@ export default function App() {
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 onClick={() => setIsSidebarOpen(false)}
-                className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm lg:hidden"
+                className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm"
               />
             )}
           </AnimatePresence>
 
           {/* Sidebar */}
           <aside className={cn(
-            "fixed inset-y-0 left-0 z-40 w-72 md:w-80 border-r border-neon-blue/20 p-6 flex flex-col gap-6 overflow-y-auto glass-panel rounded-none transition-transform duration-300 lg:relative lg:translate-x-0 shrink-0",
+            "fixed inset-y-0 left-0 z-40 w-72 md:w-80 border-r border-neon-blue/20 p-6 flex flex-col gap-6 overflow-y-auto glass-panel rounded-none transition-transform duration-300 shrink-0",
             isSidebarOpen ? "translate-x-0" : "-translate-x-full"
           )}>
-            <div className="flex items-center justify-between lg:hidden mb-4">
-              <h2 className="font-orbitron text-sm font-bold text-neon-blue uppercase tracking-widest"></h2>
+            <div className="flex items-center justify-between lg:flex mb-4">
+              <h2 className="font-orbitron text-sm font-bold text-neon-blue uppercase tracking-widest">Configuración AI</h2>
               <button onClick={() => setIsSidebarOpen(false)} className="p-1 text-white/40 hover:text-white transition-colors">
                 <X size={24} />
               </button>
             </div>
             <div className="space-y-4 mt-4 lg:mt-0">
-            {metaToken && (
-              <div className="space-y-4 p-4 bg-neon-blue/5 border border-neon-blue/20 rounded-xl mb-4">
-                <div className="flex items-center gap-2 text-neon-blue">
-                  <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
-                    <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-                  </svg>
-                  <span className="text-[10px] font-bold uppercase tracking-widest">Meta Ads Conectado</span>
-                </div>
-                
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-neon-blue">Cuenta de Anuncios</label>
-                  <select 
-                    value={selectedAdAccount}
-                    onChange={(e) => setSelectedAdAccount(e.target.value)}
-                    className="w-full bg-black/40 border border-neon-blue/30 rounded-lg px-3 py-1.5 focus:border-neon-blue outline-none transition-all text-[11px]"
-                  >
-                    {adAccounts.map(acc => (
-                      <option key={acc.id} value={acc.id} className="bg-[#0A192F]">{acc.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-neon-blue">Página de Facebook</label>
-                  <select 
-                    value={selectedPage}
-                    onChange={(e) => setSelectedPage(e.target.value)}
-                    className="w-full bg-black/40 border border-neon-blue/30 rounded-lg px-3 py-1.5 focus:border-neon-blue outline-none transition-all text-[11px]"
-                  >
-                    {pages.map(p => (
-                      <option key={p.id} value={p.id} className="bg-[#0A192F]">{p.name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            )}
+            {/* Meta Ads Connection Hidden in Sidebar by User Request */}
 
             <div className="space-y-2">
               <label className="text-xs font-bold uppercase tracking-wider text-neon-blue">Nombre del Producto</label>
@@ -1601,20 +1579,30 @@ export default function App() {
 
             <div className="space-y-2">
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-bold uppercase tracking-wider text-neon-blue">Concepto</label>
+                <label className="text-xs font-bold uppercase tracking-wider text-neon-blue">Concepto Creativo</label>
                 <button 
                   onClick={handleGenerateConcept}
                   disabled={isGeneratingConcept || !campaign.productName}
                   className="flex items-center gap-1.5 text-[10px] font-black text-neon-blue hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed group"
                 >
                   <Sparkles size={12} className={cn("group-hover:scale-125 transition-transform", isGeneratingConcept && "animate-spin")} />
-                  {isGeneratingConcept ? 'PUBLICANDO...' : 'PUBLICAR AI'}
+                  {isGeneratingConcept ? 'GENERANDO...' : 'GENERAR CON AI'}
                 </button>
               </div>
               <textarea 
                 value={campaign.creativeConcept}
                 onChange={(e) => setCampaign({...campaign, creativeConcept: e.target.value})}
-                placeholder="Ej: Minimalismo futurista, velocidad..."
+                placeholder="Ej: Elegancia futurista con un toque minimalista..."
+                className="w-full bg-black/40 border border-neon-blue/30 rounded-lg px-4 py-2 focus:border-neon-blue outline-none transition-all text-sm h-16 resize-none"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-bold uppercase tracking-wider text-neon-blue">Instrucciones Visuales</label>
+              <textarea 
+                value={campaign.instruction}
+                onChange={(e) => setCampaign({...campaign, instruction: e.target.value})}
+                placeholder="Ej: Iluminación de estudio, foco en el producto, colores vibrantes..."
                 className="w-full bg-black/40 border border-neon-blue/30 rounded-lg px-4 py-2 focus:border-neon-blue outline-none transition-all text-sm h-20 resize-none"
               />
             </div>
@@ -2201,14 +2189,14 @@ export default function App() {
                           <div className="space-y-3">
                             <div className="space-y-1">
                               <label className="text-[9px] text-white/30 uppercase tracking-widest font-bold">
-                                {activeAssetTool === 'campaign' ? 'Nota o Instrucción Adicional' : 'Instrucción (Prompt)'}
+                                {activeAssetTool === 'campaign' ? 'Instrucciones Específicas' : 'Instrucción (Prompt)'}
                               </label>
                               <textarea 
-                                value={activeAssetTool === 'campaign' ? campaign.creativeConcept : toolPrompt}
-                                onChange={(e) => activeAssetTool === 'campaign' ? setCampaign({...campaign, creativeConcept: e.target.value}) : setToolPrompt(e.target.value)}
+                                value={activeAssetTool === 'campaign' ? campaign.instruction : toolPrompt}
+                                onChange={(e) => activeAssetTool === 'campaign' ? setCampaign({...campaign, instruction: e.target.value}) : setToolPrompt(e.target.value)}
                                 placeholder={
                                   activeAssetTool === 'generate_img' ? "Describe la imagen que quieres crear..." :
-                                  activeAssetTool === 'campaign' ? "Describe el estilo o mensaje clave de la campaña..." :
+                                  activeAssetTool === 'campaign' ? "Describe detalles técnicos o visuales adicionales para estas variantes..." :
                                   activeAssetTool === 'animate' ? "Describe el movimiento o animación deseada..." :
                                   "Describe el resultado esperado..."
                                 }
@@ -2801,87 +2789,101 @@ export default function App() {
                             <option>Tráfico</option>
                             <option>Interacción</option>
                             <option>Clientes Potenciales</option>
-                            <option>Conversiones</option>
                             <option>Ventas</option>
+                            <option>WhatsApp</option>
                           </select>
                         </div>
 
                         <div className="space-y-1.5">
-                          <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Formato del Anuncio</label>
+                          <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">URL de Destino</label>
+                          <div className="relative">
+                            <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 text-neon-blue" size={14} />
+                            <input 
+                              type="url" 
+                              value={campaign.destinationUrl}
+                              onChange={(e) => setCampaign({...campaign, destinationUrl: e.target.value})}
+                              placeholder="https://tu-sitio.com/landing"
+                              className="w-full bg-black/40 border border-white/10 rounded-lg p-3 pl-9 text-[10px] text-white focus:border-neon-blue/50 outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        {campaign.objective === 'Ventas' && (
+                          <div className="space-y-1.5">
+                            <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">PIXEL ID</label>
+                            <input 
+                              type="text" 
+                              value={campaign.pixelId}
+                              onChange={(e) => setCampaign({...campaign, pixelId: e.target.value})}
+                              placeholder="Ej: 1234567890"
+                              className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-[10px] text-white focus:border-neon-blue/50 outline-none"
+                            />
+                          </div>
+                        )}
+
+                        <div className="space-y-1.5">
+                          <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Canales</label>
                           <div className="grid grid-cols-2 gap-2">
                             <button 
-                              onClick={() => setCampaign({...campaign, format: 'image'})}
+                              onClick={() => setCampaign({...campaign, facebookEnabled: !campaign.facebookEnabled})}
                               className={cn(
                                 "flex items-center justify-center gap-2 py-2 rounded-lg border text-[9px] font-bold uppercase tracking-wider transition-all",
-                                campaign.format === 'image' ? "border-neon-blue bg-neon-blue/10 text-neon-blue" : "border-white/10 text-white/40 hover:border-white/30"
+                                campaign.facebookEnabled ? "border-neon-blue bg-neon-blue/10 text-neon-blue" : "border-white/10 text-white/40 hover:border-white/30"
                               )}
                             >
-                              <ImageIcon size={12} /> Imagen
+                              Facebook
                             </button>
                             <button 
-                              onClick={() => setCampaign({...campaign, format: 'video'})}
+                              onClick={() => setCampaign({...campaign, instagramEnabled: !campaign.instagramEnabled})}
                               className={cn(
                                 "flex items-center justify-center gap-2 py-2 rounded-lg border text-[9px] font-bold uppercase tracking-wider transition-all",
-                                campaign.format === 'video' ? "border-neon-blue bg-neon-blue/10 text-neon-blue" : "border-white/10 text-white/40 hover:border-white/30"
+                                campaign.instagramEnabled ? "border-neon-blue bg-neon-blue/10 text-neon-blue" : "border-white/10 text-white/40 hover:border-white/30"
                               )}
                             >
-                              <Video size={12} /> Video
+                              Instagram
                             </button>
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="space-y-1.5">
-                            <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Presupuesto Diario</label>
-                            <div className="flex gap-2">
-                              <div className="relative flex-1">
-                                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-neon-blue" size={14} />
-                                <input 
-                                  type="number" 
-                                  value={campaign.budget}
-                                  onChange={(e) => setCampaign({...campaign, budget: e.target.value})}
-                                  placeholder="5.00"
-                                  className="w-full bg-black/40 border border-white/10 rounded-lg p-3 pl-9 text-[10px] text-white focus:border-neon-blue/50 outline-none"
-                                />
-                              </div>
-                              <select 
-                                value={campaign.currency || 'USD'}
-                                onChange={(e) => setCampaign({...campaign, currency: e.target.value})}
-                                className="w-24 bg-black/40 border border-white/10 rounded-lg p-3 text-[10px] text-white focus:border-neon-blue/50 outline-none font-bold"
-                              >
-                                <option value="USD">USD</option>
-                                <option value="MXN">MXN</option>
-                                <option value="COP">COP</option>
-                                <option value="CLP">CLP</option>
-                                <option value="EUR">EUR</option>
-                              </select>
-                            </div>
-                          </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Ubicaciones</label>
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                            {[
+                              { key: 'feedEnabled', label: 'Feed' },
+                              { key: 'reelsAndStories', label: 'Historias y Reels' },
+                              { key: 'instreamEnabled', label: 'Instream' },
+                              { key: 'advantagePlacementsEnabled', label: 'Advantage +' }
+                            ].map((placement) => {
+                              const isCombined = placement.key === 'reelsAndStories';
+                              const isChecked = isCombined 
+                                ? (campaign.reelsEnabled || campaign.storiesEnabled) 
+                                : !!campaign[placement.key as keyof CampaignData];
 
-                          <div className="space-y-1.5">
-                            <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Programación</label>
-                            <div className="grid grid-cols-2 gap-2">
-                              <div className="relative">
-                                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-neon-blue" size={14} />
-                                <input 
-                                  type="date"
-                                  value={campaign.scheduleStart}
-                                  onChange={(e) => setCampaign({...campaign, scheduleStart: e.target.value})}
-                                  className="w-full bg-black/40 border border-white/10 rounded-lg p-3 pl-9 text-[10px] text-white focus:border-neon-blue/50 outline-none [color-scheme:dark]"
-                                />
-                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[8px] text-white/20 uppercase font-bold">Inicio</span>
-                              </div>
-                              <div className="relative">
-                                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-neon-pink" size={14} />
-                                <input 
-                                  type="date"
-                                  value={campaign.scheduleEnd}
-                                  onChange={(e) => setCampaign({...campaign, scheduleEnd: e.target.value})}
-                                  className="w-full bg-black/40 border border-white/10 rounded-lg p-3 pl-9 text-[10px] text-white focus:border-neon-blue/50 outline-none [color-scheme:dark]"
-                                />
-                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[8px] text-white/20 uppercase font-bold">Fin</span>
-                              </div>
-                            </div>
+                              return (
+                                <label 
+                                  key={placement.key} 
+                                  className={cn(
+                                    "flex items-center gap-2 p-2 rounded-lg border transition-all cursor-pointer",
+                                    isChecked ? "bg-neon-blue/10 border-neon-blue/30" : "bg-black/20 border-white/5 hover:border-white/20"
+                                  )}
+                                >
+                                  <input 
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={() => {
+                                      if (isCombined) {
+                                        const nextVal = !isChecked;
+                                        setCampaign({...campaign, reelsEnabled: nextVal, storiesEnabled: nextVal});
+                                      } else {
+                                        setCampaign({...campaign, [placement.key]: !campaign[placement.key as keyof CampaignData]});
+                                      }
+                                    }}
+                                    className="accent-neon-blue w-3 h-3"
+                                  />
+                                  <span className="text-[8px] font-bold uppercase tracking-wider text-white/70">{placement.label}</span>
+                                </label>
+                              );
+                            })}
                           </div>
                         </div>
                       </div>
@@ -2918,38 +2920,44 @@ export default function App() {
                           </div>
                         </div>
 
-                        <div className="space-y-1.5">
-                          <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Ubicaciones</label>
-                          <div className="grid grid-cols-2 gap-2">
-                            <label className="flex items-center gap-2 p-2 rounded bg-black/20 border border-white/5 cursor-pointer hover:border-neon-blue/30 transition-all">
-                              <input type="checkbox" defaultChecked className="accent-neon-blue" />
-                              <span className="text-[9px] text-white/60">Facebook Feed</span>
-                            </label>
-                            <label className="flex items-center gap-2 p-2 rounded bg-black/20 border border-white/5 cursor-pointer hover:border-neon-blue/30 transition-all">
-                              <input type="checkbox" defaultChecked className="accent-neon-blue" />
-                              <span className="text-[9px] text-white/60">Instagram Reels</span>
-                            </label>
-                            <label className="flex items-center gap-2 p-2 rounded bg-black/20 border border-white/5 cursor-pointer hover:border-neon-blue/30 transition-all">
-                              <input type="checkbox" defaultChecked className="accent-neon-blue" />
-                              <span className="text-[9px] text-white/60">Audience Network</span>
-                            </label>
-                            <label className="flex items-center gap-2 p-2 rounded bg-black/20 border border-white/5 cursor-pointer hover:border-neon-blue/30 transition-all">
-                              <input type="checkbox" defaultChecked className="accent-neon-blue" />
-                              <span className="text-[9px] text-white/60">Messenger</span>
-                            </label>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1.5">
+                            <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Género</label>
+                            <select 
+                              value={campaign.gender}
+                              onChange={(e) => setCampaign({...campaign, gender: e.target.value})}
+                              className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-[10px] text-white focus:border-neon-blue/50 outline-none"
+                            >
+                              <option>Todos</option>
+                              <option>Hombres</option>
+                              <option>Mujeres</option>
+                            </select>
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Edad</label>
+                            <input 
+                              type="text" 
+                              value={campaign.ageRange}
+                              onChange={(e) => setCampaign({...campaign, ageRange: e.target.value})}
+                              placeholder="Ej: 18-65+"
+                              className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-[10px] text-white focus:border-neon-blue/50 outline-none"
+                            />
                           </div>
                         </div>
 
-                        <div className="space-y-1.5">
-                          <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">URL de Destino</label>
-                          <div className="relative">
-                            <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 text-neon-blue" size={14} />
+                        <div className="space-y-1.5 pt-2">
+                          <label className="flex items-center gap-2 p-3 rounded-lg border border-neon-blue/20 bg-neon-blue/5 cursor-pointer hover:border-neon-blue/40 transition-all">
                             <input 
-                              type="url" 
-                              placeholder="https://tu-sitio.com/landing"
-                              className="w-full bg-black/40 border border-white/10 rounded-lg p-3 pl-9 text-[10px] text-white focus:border-neon-blue/50 outline-none"
+                              type="checkbox"
+                              checked={campaign.advantageAudienceEnabled}
+                              onChange={() => setCampaign({...campaign, advantageAudienceEnabled: !campaign.advantageAudienceEnabled})}
+                              className="accent-neon-blue w-4 h-4"
                             />
-                          </div>
+                            <div className="flex flex-col">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-neon-blue">Público Advantage +</span>
+                              <span className="text-[8px] text-white/40 uppercase tracking-widest">Optimización automática por IA</span>
+                            </div>
+                          </label>
                         </div>
                       </div>
                     </div>
@@ -3379,56 +3387,7 @@ export default function App() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-4">
                     {/* Basic Info */}
                     <div className="space-y-4">
-                      {campaign.objective === 'Ventas' && (
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-neon-pink">ID del Píxel (Obligatorio para Ventas)</label>
-                          <input 
-                            type="text" 
-                            value={campaign.pixelId}
-                            onChange={(e) => setCampaign({...campaign, pixelId: e.target.value})}
-                            placeholder="Ej: 1234567890"
-                            className="w-full bg-white/5 border border-neon-pink/30 rounded-xl px-4 py-3 text-sm text-white focus:border-neon-pink outline-none transition-all placeholder:text-white/20"
-                          />
-                        </div>
-                      )}
-                      
-                      {(campaign.objective === 'Tráfico' || campaign.objective === 'Ventas') && (
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">URL de Destino</label>
-                          <input 
-                            type="url" 
-                            value={campaign.destinationUrl}
-                            onChange={(e) => setCampaign({...campaign, destinationUrl: e.target.value})}
-                            placeholder="https://tu-tienda.com/producto"
-                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-neon-blue outline-none transition-all placeholder:text-white/20"
-                          />
-                        </div>
-                      )}
-
-                      {campaign.objective === 'WhatsApp' && (
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-neon-green">Número de WhatsApp (Opcional)</label>
-                          <input 
-                            type="tel" 
-                            value={campaign.whatsappNumber}
-                            onChange={(e) => setCampaign({...campaign, whatsappNumber: e.target.value})}
-                            placeholder="Ej: +573101234567"
-                            className="w-full bg-white/5 border border-neon-green/30 rounded-xl px-4 py-3 text-sm text-white focus:border-neon-green outline-none transition-all placeholder:text-white/20"
-                          />
-                          <p className="text-[8px] text-white/40 uppercase tracking-[0.2em]">Debe estar vinculado en tu Administrador de Facebook</p>
-                        </div>
-                      )}
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Presupuesto Diario</label>
-                          <input 
-                            type="text" 
-                            value={campaign.budget}
-                            onChange={(e) => setCampaign({...campaign, budget: e.target.value})}
-                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-neon-blue outline-none transition-all"
-                          />
-                        </div>
+                      <div className="grid grid-cols-1 gap-4">
                         <div className="space-y-2">
                           <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Moneda</label>
                           <select 
@@ -3441,39 +3400,24 @@ export default function App() {
                             <option value="MXN">MXN</option>
                             <option value="CLP">CLP</option>
                             <option value="EUR">EUR</option>
+                            <option value="PEN">PEN</option>
                           </select>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Presupuesto Diario</label>
+                          <input 
+                            type="text" 
+                            value={campaign.budget}
+                            onChange={(e) => setCampaign({...campaign, budget: e.target.value})}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-neon-blue outline-none transition-all placeholder:text-white/20"
+                            placeholder="Ej: 5.00"
+                          />
                         </div>
                       </div>
                     </div>
 
-                    {/* Placements & Schedule */}
+                    {/* Schedule Section */}
                     <div className="space-y-4">
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40 mb-2 block">Canales de Distribución</label>
-                        <div className="grid grid-cols-2 gap-3">
-                          <button 
-                            onClick={() => setCampaign({...campaign, facebookEnabled: !campaign.facebookEnabled})}
-                            className={cn(
-                              "flex items-center justify-center gap-2 p-3 rounded-xl border transition-all text-[10px] font-bold uppercase tracking-wider",
-                              campaign.facebookEnabled ? "bg-neon-blue/20 border-neon-blue text-neon-blue" : "bg-white/5 border-white/10 text-white/20"
-                            )}
-                          >
-                            <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
-                             Facebook
-                          </button>
-                          <button 
-                            onClick={() => setCampaign({...campaign, instagramEnabled: !campaign.instagramEnabled})}
-                            className={cn(
-                              "flex items-center justify-center gap-2 p-3 rounded-xl border transition-all text-[10px] font-bold uppercase tracking-wider",
-                              campaign.instagramEnabled ? "bg-neon-pink/20 border-neon-pink text-neon-pink" : "bg-white/5 border-white/10 text-white/20"
-                            )}
-                          >
-                            <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
-                             Instagram
-                          </button>
-                        </div>
-                      </div>
-
                       <div className="space-y-4 pt-2">
                         <div className="space-y-2">
                           <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Fecha de Inicio (Opcional)</label>
@@ -3621,7 +3565,7 @@ export default function App() {
                   )}
                   {isPublishing 
                     ? "PUBLICANDO EN META..." 
-                    : (publishStep === 'config' ? "SIGUIENTE: VISTA PREVIA" : "CONFIRMAR Y PUBLICAR EN VIVO")}
+                    : (publishStep === 'config' ? "SIGUIENTE: VISTA PREVIA" : "Confirmar y Publicar Ahora")}
                 </button>
               </div>
             </motion.div>

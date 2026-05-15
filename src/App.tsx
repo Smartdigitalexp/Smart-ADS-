@@ -47,13 +47,15 @@ import {
   Globe,
   DollarSign,
   Link2,
-  MapPin
+  MapPin,
+  RefreshCcw,
+  Search
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { analyzeAndGenerate, generateCreativeConcept, generateVideoFromPrompt, optimizeProductReference, analyzePerformanceData } from './services/geminiService';
+import { analyzeAndGenerate, generateCreativeConcept, generateVideoFromPrompt, optimizeProductReference, analyzePerformanceData, generateImageFromPrompt } from './services/geminiService';
 import { AdResult, CampaignData, CSVRow, HistoryItem, UserProfile, AnalysisReport } from './types';
 import { SmartBot } from './components/SmartBot';
 import { Logo } from './components/Logo';
@@ -161,7 +163,7 @@ export default function App() {
   const [copiedType, setCopiedType] = useState<string | null>(null);
   const [isGeneratingConcept, setIsGeneratingConcept] = useState(false);
   const [activeHomeTab, setActiveHomeTab] = useState<'analizar' | 'crear' | 'publicar'>('analizar');
-  const [activeAssetTool, setActiveAssetTool] = useState<'campaign' | 'generate_img' | 'product_img' | 'animate' | 'edit_img' | 'video_gen'>('campaign');
+  const [activeAssetTool, setActiveAssetTool] = useState<'hub' | 'campaign' | 'generate_img' | 'product_img' | 'animate' | 'edit_img' | 'video_gen'>('hub');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
 
@@ -193,6 +195,45 @@ export default function App() {
   const [showRecharge, setShowRecharge] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [toolPrompt, setToolPrompt] = useState('');
+  const [toolResult, setToolResult] = useState<string | null>(null);
+  const [isToolProcessing, setIsToolProcessing] = useState(false);
+
+  const handleExecuteTool = async () => {
+    if (!toolPrompt.trim()) return;
+    setIsToolProcessing(true);
+    setToolResult(null);
+
+    try {
+      let result = '';
+      const base64 = visualPreview?.split(',')[1];
+      const mime = visualPreview?.split(';')[0].split(':')[1];
+
+      if (activeAssetTool === 'generate_img') {
+        result = await generateImageFromPrompt(toolPrompt, campaign.aspectRatio);
+      } else if (activeAssetTool === 'product_img') {
+        // We use optimizeProductReference but with the prompt
+        // Let's use generic image generation with the product ref
+        result = await generateImageFromPrompt(toolPrompt, campaign.aspectRatio, base64, mime);
+      } else if (activeAssetTool === 'animate') {
+        result = await generateVideoFromPrompt(toolPrompt, campaign.aspectRatio, base64, mime);
+      } else if (activeAssetTool === 'video_gen') {
+        result = await generateVideoFromPrompt(toolPrompt, campaign.aspectRatio, base64, mime);
+      }
+
+      setToolResult(result);
+    } catch (error) {
+      console.error("Error executing tool:", error);
+      alert("Error al procesar la solicitud IA.");
+    } finally {
+      setIsToolProcessing(false);
+    }
+  };
+
+  const clearTool = () => {
+    setToolPrompt('');
+    setToolResult(null);
+  };
 
   // Meta Ads State
   const [metaToken, setMetaToken] = useState<string | null>(null);
@@ -534,7 +575,7 @@ export default function App() {
         productName: campaign.productName,
         imageUrl: currentResult.generatedImageUrl || '',
         headline: currentResult.headline || campaign.productName, // Copy -> Title
-        body: currentResult.captions.aida, // Caption -> Text
+        body: `${currentResult.captions.aida.attention}\n\n${currentResult.captions.aida.interest}\n\n${currentResult.captions.aida.desire}\n\n${currentResult.captions.aida.action}`, // Caption -> Text
         objective: campaign.objective,
         budget: campaign.budget || '5.00',
         audience: campaign.audience,
@@ -1250,6 +1291,21 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col bg-deep-blue">
+      {/* Global Inputs */}
+      <input 
+        type="file" 
+        accept="image/*,video/*" 
+        ref={fileInputRef} 
+        onChange={handleVisualUpload} 
+        className="hidden" 
+      />
+      <input 
+        type="file" 
+        accept=".csv,.xlsx" 
+        ref={csvInputRef} 
+        onChange={handleCsvUpload} 
+        className="hidden" 
+      />
       {/* Header */}
       <header className="h-20 md:h-24 border-b border-neon-blue/20 flex items-center px-4 md:px-8 glass-panel rounded-none relative overflow-visible shrink-0 z-[100]">
         <div className="absolute inset-0 bg-gradient-to-r from-neon-blue/5 to-transparent pointer-events-none" />
@@ -1941,38 +1997,37 @@ export default function App() {
                       </div>
                     )}
 
-                    <div className="flex items-center gap-4 py-2">
-                      <div className="h-px flex-1 bg-white/10" />
-                      <span className="text-[10px] text-white/20 font-orbitron uppercase tracking-[0.3em]">O importar archivo local</span>
-                      <div className="h-px flex-1 bg-white/10" />
-                    </div>
-
-                    <div 
-                      onClick={() => csvInputRef.current?.click()}
-                      className="glass-panel p-10 border-dashed border-2 border-neon-blue/30 hover:border-neon-blue/60 transition-all cursor-pointer group flex flex-col items-center justify-center text-center gap-4 bg-white/5"
-                    >
-                      <input type="file" accept=".csv" ref={csvInputRef} onChange={handleCsvUpload} className="hidden" />
-                      <div className="w-20 h-20 rounded-full bg-neon-blue/10 flex items-center justify-center group-hover:scale-110 transition-transform shadow-[0_0_20px_rgba(0,209,255,0.1)]">
-                        <Upload className="text-neon-blue" size={40} />
-                      </div>
-                      <div>
-                        <h3 className="font-orbitron text-sm font-bold tracking-wider uppercase">IMPORTAR CSV</h3>
-                        <p className="text-[10px] text-white/40 mt-1 uppercase tracking-widest">
-                          {csvData.length > 0 ? `${csvData.length} registros cargados` : 'Analizar datos desde archivo local'}
-                        </p>
-                      </div>
-                    </div>
+                     {/* CSV Import Hidden by User Request */}
                   </div>
 
                   <div className="flex justify-center">
                     <button 
-                      onClick={() => setActiveHomeTab('crear')}
-                      className="group flex flex-col items-center gap-3"
+                      onClick={() => {
+                        if (csvData.length > 0) {
+                          setActiveHomeTab('crear');
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }
+                      }}
+                      className={cn(
+                        "group flex flex-col items-center gap-3 transition-all",
+                        csvData.length === 0 ? "opacity-30 grayscale cursor-not-allowed" : "cursor-pointer"
+                      )}
                     >
-                      <div className="w-12 h-12 rounded-full bg-white/5 border border-white/10 flex items-center justify-center group-hover:border-neon-blue/50 transition-all shadow-[0_0_10px_rgba(255,255,255,0.02)]">
-                        <ChevronDown className="text-white/40 group-hover:text-neon-blue transition-colors" />
+                      <div className={cn(
+                        "w-12 h-12 rounded-full border flex items-center justify-center transition-all shadow-[0_0_10px_rgba(255,255,255,0.02)]",
+                        csvData.length > 0 
+                          ? "bg-neon-blue/10 border-neon-blue/50 group-hover:border-neon-blue/80 shadow-[0_0_15px_rgba(0,209,255,0.2)]" 
+                          : "bg-white/5 border-white/10"
+                      )}>
+                        <ChevronDown className={cn(
+                          "transition-colors",
+                          csvData.length > 0 ? "text-neon-blue" : "text-white/40"
+                        )} />
                       </div>
-                      <span className="text-[8px] font-orbitron text-white/20 uppercase tracking-[0.4em]">Continuar a Creación</span>
+                      <span className={cn(
+                        "text-[8px] font-orbitron uppercase tracking-[0.4em] font-black transition-colors",
+                        csvData.length > 0 ? "text-neon-blue" : "text-white/20"
+                      )}>Continuar a Creación</span>
                     </button>
                   </div>
 
@@ -1999,51 +2054,59 @@ export default function App() {
                 >
                   <div className="flex flex-col gap-2">
                     <h2 className="font-orbitron text-base md:text-lg font-bold flex items-center gap-2">
-                      {activeAssetTool !== 'campaign' && (
+                      {activeAssetTool !== 'hub' && (
                         <button 
-                          onClick={() => setActiveAssetTool('campaign')}
+                          onClick={() => setActiveAssetTool('hub')}
                           className="p-1 hover:bg-white/10 rounded transition-colors mr-2 text-white/40 hover:text-white"
                         >
                           <ChevronRight className="rotate-180" size={16} />
                         </button>
                       )}
-                      <Zap className="text-neon-blue" /> {activeAssetTool === 'campaign' ? 'CREAR ANUNCIOS' : activeAssetTool.toUpperCase().replace('_', ' ')}
+                      <Zap className="text-neon-blue" /> {
+                        activeAssetTool === 'hub' ? 'CREAR ANUNCIOS' : 
+                        activeAssetTool === 'campaign' ? 'CREAR ANUNCIO' : 
+                        activeAssetTool === 'generate_img' ? 'CREAR IMÁGENES' :
+                        activeAssetTool === 'product_img' ? 'ANUNCIOS DE PRODUCTOS' :
+                        activeAssetTool === 'animate' ? 'ANUNCIO DE VIDEO' :
+                        activeAssetTool === 'edit_img' ? 'EDITAR ANUNCIOS' :
+                        activeAssetTool.toUpperCase().replace('_', ' ')
+                      }
                     </h2>
                     <p className="text-[10px] text-white/40 uppercase tracking-widest leading-relaxed">
                       Transforma tu visión en piezas publicitarias de alto impacto con IA Neural.
                     </p>
                   </div>
 
-                  {activeAssetTool === 'campaign' && (
+                  {activeAssetTool === 'hub' && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                       <AssetToolCard 
                         icon={<Sparkles size={20} />}
-                        title="Nueva Campaña"
+                        title="Crear Anuncio"
                         desc="Genera creatividades completas desde una referencia"
                         onClick={() => setActiveAssetTool('campaign')}
-                        active={true}
+                        active={false}
                       />
                       <AssetToolCard 
                         icon={<ImageIcon size={20} />}
-                        title="Crea imágenes nuevas"
+                        title="Crear Imágenes"
                         desc="Genera visuales desde texto (Text to Image)"
                         onClick={() => setActiveAssetTool('generate_img')}
                       />
                       <AssetToolCard 
                         icon={<Package size={20} />}
-                        title="Imágenes de productos"
+                        title="Anuncios de Productos"
                         desc="Optimiza y cambia fondos para tus productos"
                         onClick={() => setActiveAssetTool('product_img')}
                       />
                       <AssetToolCard 
                         icon={<Play size={20} />}
-                        title="Anima imágenes"
+                        title="Anuncio de Video"
                         desc="Convierte fotos en videos cinematográficos"
                         onClick={() => setActiveAssetTool('animate')}
                       />
                       <AssetToolCard 
                         icon={<Edit3 size={20} />}
-                        title="Editar imágenes"
+                        title="Editar Anuncios"
                         desc="Modifica elementos específicos con pincel IA"
                         onClick={() => setActiveAssetTool('edit_img')}
                       />
@@ -2056,110 +2119,172 @@ export default function App() {
                     </div>
                   )}
 
-                  {activeAssetTool !== 'campaign' && (
+                  {activeAssetTool !== 'hub' && (
                     <motion.div 
+                      key={activeAssetTool}
                       initial={{ opacity: 0, x: 20 }}
                       animate={{ opacity: 1, x: 0 }}
                       className="glass-panel p-8 border-neon-blue/20 bg-white/5 space-y-6"
                     >
                       <div className="flex items-center justify-between border-b border-white/5 pb-4">
                         <div>
-                          <h3 className="font-orbitron text-sm font-bold text-white uppercase tracking-wider">HERRAMIENTA IA EN DESARROLLO</h3>
-                          <p className="text-[10px] text-white/40 uppercase tracking-widest mt-1">Este módulo se está sintonizando con tu núcleo neural</p>
+                          <h3 className="font-orbitron text-sm font-bold text-white uppercase tracking-wider">
+                            {
+                              activeAssetTool === 'campaign' ? 'CREAR ANUNCIO' : 
+                              activeAssetTool === 'generate_img' ? 'CREAR IMÁGENES' :
+                              activeAssetTool === 'product_img' ? 'ANUNCIOS DE PRODUCTOS' :
+                              activeAssetTool === 'animate' ? 'ANUNCIO DE VIDEO' :
+                              activeAssetTool === 'edit_img' ? 'EDITAR ANUNCIOS' :
+                              activeAssetTool.toUpperCase().replace('_', ' ')
+                            }
+                          </h3>
+                          <p className="text-[10px] text-white/40 uppercase tracking-widest mt-1">Potenciando tu creatividad con inteligencia neural</p>
                         </div>
                         <div className="w-12 h-12 rounded-full border border-neon-blue/20 flex items-center justify-center">
-                          <Cpu className="text-neon-blue animate-pulse" size={24} />
+                          <Cpu className={cn("text-neon-blue", (isToolProcessing || isProcessing) && "animate-spin")} size={24} />
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 py-10">
-                        <div className="space-y-4">
-                          <h4 className="font-orbitron text-xs font-bold text-neon-blue uppercase">Configuración de Generación</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 py-6">
+                        <div className="space-y-6">
+                          <div className="flex items-center justify-between">
+                            <h4 className="font-orbitron text-xs font-bold text-neon-blue uppercase">Configuración de Generación</h4>
+                            {(toolResult || visualPreview) && (
+                              <button 
+                                onClick={activeAssetTool === 'campaign' ? () => { setVisualFile(null); setVisualPreview(null); setOptimizedVisual(null); } : clearTool}
+                                className="text-[9px] text-white/40 hover:text-white uppercase font-bold tracking-widest flex items-center gap-1 transition-colors"
+                              >
+                                <RefreshCcw size={10} /> Reiniciar
+                              </button>
+                            )}
+                          </div>
+                          
+                          {/* Visual Core Upload - Only for tools that use reference */}
+                          {!['generate_img'].includes(activeAssetTool) && (
+                            <div className="space-y-2">
+                              <label className="text-[9px] text-white/30 uppercase tracking-widest font-bold">Núcleo Visual (Referencia)</label>
+                              <div 
+                                onClick={() => !isProcessing && !isToolProcessing && !isStudioProcessing && fileInputRef.current?.click()}
+                                className={cn(
+                                  "w-full aspect-video rounded-xl border border-dashed flex flex-col items-center justify-center cursor-pointer group transition-all relative overflow-hidden bg-black/40",
+                                  visualPreview ? "border-neon-blue/40" : "border-white/10 hover:border-neon-blue/30"
+                                )}
+                              >
+                                {visualPreview ? (
+                                  <>
+                                    <img src={visualPreview} className="w-full h-full object-cover" />
+                                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                      <RefreshCcw className="text-white" size={24} />
+                                    </div>
+                                    {(isProcessing || isToolProcessing || isStudioProcessing) && <div className="laser-scan" />}
+                                  </>
+                                ) : (
+                                  <div className="text-center space-y-2">
+                                    <Upload className="mx-auto text-white/20" size={24} />
+                                    <p className="text-[9px] text-white/40 uppercase font-bold tracking-widest">Subir Imagen o Video</p>
+                                  </div>
+                                )}
+                              </div>
+                              {visualPreview && !isProcessing && !isToolProcessing && !visualFile?.type.includes('video') && (
+                                <button 
+                                  onClick={handleProductStudioRefine}
+                                  disabled={isStudioProcessing}
+                                  className="w-full py-2 rounded-lg bg-neon-blue/10 border border-neon-blue/20 text-neon-blue text-[9px] font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-neon-blue hover:text-black transition-all"
+                                >
+                                  {isStudioProcessing ? <Cpu className="animate-spin" size={12} /> : <Sparkles size={12} />}
+                                  OPTIMIZAR CON PRODUCT STUDIO
+                                </button>
+                              )}
+                            </div>
+                          )}
+
                           <div className="space-y-3">
                             <div className="space-y-1">
-                              <label className="text-[9px] text-white/30 uppercase tracking-widest font-bold">Instrucción (Prompt)</label>
+                              <label className="text-[9px] text-white/30 uppercase tracking-widest font-bold">
+                                {activeAssetTool === 'campaign' ? 'Nota o Instrucción Adicional' : 'Instrucción (Prompt)'}
+                              </label>
                               <textarea 
-                                placeholder="Describe el estilo, sujetos y ambiente deseado..."
+                                value={activeAssetTool === 'campaign' ? campaign.creativeConcept : toolPrompt}
+                                onChange={(e) => activeAssetTool === 'campaign' ? setCampaign({...campaign, creativeConcept: e.target.value}) : setToolPrompt(e.target.value)}
+                                placeholder={
+                                  activeAssetTool === 'generate_img' ? "Describe la imagen que quieres crear..." :
+                                  activeAssetTool === 'campaign' ? "Describe el estilo o mensaje clave de la campaña..." :
+                                  activeAssetTool === 'animate' ? "Describe el movimiento o animación deseada..." :
+                                  "Describe el resultado esperado..."
+                                }
                                 className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-[10px] text-white focus:border-neon-blue/50 outline-none h-24 resize-none"
                               />
                             </div>
-                            <button className="w-full py-3 rounded-lg bg-neon-blue text-black font-orbitron text-[10px] font-black uppercase tracking-widest hover:shadow-[0_0_20px_rgba(0,209,255,0.3)] transition-all">
-                              EJECUTAR PROCESO IA
+                            <button 
+                              onClick={activeAssetTool === 'campaign' ? processAds : handleExecuteTool}
+                              disabled={isToolProcessing || isProcessing || (activeAssetTool !== 'campaign' && !toolPrompt.trim())}
+                              className={cn(
+                                "w-full py-4 rounded-xl font-orbitron text-[10px] font-black uppercase tracking-widest transition-all",
+                                (isToolProcessing || isProcessing || (activeAssetTool !== 'campaign' && !toolPrompt.trim())) 
+                                  ? "bg-white/5 text-white/20 cursor-not-allowed" 
+                                  : "bg-neon-blue text-black hover:shadow-[0_0_20px_rgba(0,209,255,0.3)] hover:scale-[1.01]"
+                              )}
+                            >
+                              {activeAssetTool === 'campaign' 
+                                ? (isProcessing ? "GENERANDO CAMPAÑA..." : "CREAR CAMPAÑA NEURAL")
+                                : (isToolProcessing ? "PROCESANDO..." : "EJECUTAR PROCESO IA")
+                              }
                             </button>
                           </div>
                         </div>
-                        <div className="glass-panel border-dashed border border-white/10 flex items-center justify-center bg-black/20 min-h-[200px] rounded-2xl relative overflow-hidden">
-                           <div className="text-center space-y-2 relative z-10">
-                              <ImageIcon className="mx-auto text-white/10" size={48} />
-                              <p className="text-[9px] text-white/20 uppercase tracking-widest font-bold">El resultado aparecerá aquí</p>
-                           </div>
-                           <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                        <div className="glass-panel border-dashed border border-white/10 flex items-center justify-center bg-black/20 min-h-[350px] rounded-2xl relative overflow-hidden group">
+                           {isToolProcessing || isProcessing ? (
+                             <div className="text-center space-y-4">
+                               <div className="w-12 h-12 border-2 border-neon-blue/20 border-t-neon-blue rounded-full animate-spin mx-auto" />
+                               <p className="text-[10px] text-neon-blue animate-pulse uppercase tracking-[0.2em] font-bold">Generando Visual...</p>
+                               <p className="text-[8px] text-white/40 uppercase tracking-widest">El motor neuronal está trabajando en tu pieza</p>
+                             </div>
+                           ) : (toolResult || (activeAssetTool === 'campaign' && results.length > 0)) ? (
+                             <>
+                               {toolResult?.startsWith('data:video') || (activeAssetTool === 'campaign' && results[selectedResultIndex]?.generatedImageUrl?.startsWith('data:video')) ? (
+                                 <video 
+                                   src={toolResult || results[selectedResultIndex].generatedImageUrl} 
+                                   autoPlay 
+                                   loop 
+                                   muted 
+                                   playsInline 
+                                   className="w-full h-full object-cover" 
+                                 />
+                               ) : (
+                                 <img 
+                                   src={toolResult || results[selectedResultIndex]?.generatedImageUrl} 
+                                   className="w-full h-full object-cover" 
+                                 />
+                               )}
+                               <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/80 to-transparent translate-y-full group-hover:translate-y-0 transition-transform">
+                                  <button 
+                                    onClick={() => {
+                                      const url = toolResult || results[selectedResultIndex].generatedImageUrl;
+                                      const link = document.createElement('a');
+                                      link.href = url;
+                                      link.download = `smart-ads-preview-${Date.now()}.${url.startsWith('data:video') ? 'mp4' : 'png'}`;
+                                      link.click();
+                                    }}
+                                    className="w-full py-2 bg-neon-blue text-black text-[10px] font-bold uppercase rounded-lg"
+                                  >
+                                    Descargar Resultado
+                                  </button>
+                               </div>
+                             </>
+                           ) : (
+                             <div className="text-center space-y-4 relative z-10 p-8">
+                                <Search className="mx-auto text-white/10" size={48} />
+                                <div className="space-y-2">
+                                  <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Previsualización</p>
+                                  <p className="text-[9px] text-white/20 uppercase tracking-widest leading-relaxed">El resultado de la IA aparecerá aquí después de procesar tus instrucciones.</p>
+                                </div>
+                             </div>
+                           )}
+                           <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
                         </div>
                       </div>
                     </motion.div>
                   )}
-
-                  <div className={cn("grid grid-cols-1 gap-6", activeAssetTool !== 'campaign' && "hidden")}>
-                    <div className="flex flex-col gap-4">
-                      <div 
-                        onClick={() => !isProcessing && !isStudioProcessing && fileInputRef.current?.click()}
-                        className={cn(
-                          "glass-panel p-10 border-dashed border-2 transition-all cursor-pointer group flex flex-col items-center justify-center text-center gap-4 relative overflow-hidden bg-white/5",
-                          (isProcessing || isStudioProcessing) ? "border-neon-blue/10" : "border-neon-blue/30 hover:border-neon-blue/60"
-                        )}
-                      >
-                        <input type="file" accept="image/*,video/*" ref={fileInputRef} onChange={handleVisualUpload} className="hidden" />
-                        
-                        {visualPreview ? (
-                          <div className="w-full h-full absolute inset-0">
-                            <img src={visualPreview} className="w-full h-full object-cover opacity-40" />
-                            {(isProcessing || isStudioProcessing) && <div className="laser-scan" />}
-                          </div>
-                        ) : (
-                          <div className="w-20 h-20 rounded-full bg-neon-blue/10 flex items-center justify-center group-hover:scale-110 transition-transform">
-                            <Upload className="text-neon-blue" size={40} />
-                          </div>
-                        )}
-                        
-                        <div className="relative z-10">
-                          <h3 className="font-orbitron text-sm font-bold tracking-wider uppercase">NÚCLEO VISUAL</h3>
-                          <p className="text-[10px] text-white/40 mt-1 uppercase tracking-widest">
-                            {visualFile ? visualFile.name : 'Imagen o Video de Referencia'}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Product Studio Helper */}
-                      {visualPreview && !isProcessing && !visualFile?.type.includes('video') && (
-                        <motion.div 
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className="glass-panel p-6 border-neon-blue/20 bg-neon-blue/5 space-y-4"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <Sparkles className="text-neon-blue" size={18} />
-                              <h4 className="font-orbitron text-xs font-bold tracking-wider text-neon-blue uppercase">PRODUCT STUDIO AI</h4>
-                            </div>
-                            <span className="text-[9px] font-black bg-neon-blue/20 text-neon-blue px-2 py-0.5 rounded-full uppercase tracking-widest">30 Créditos</span>
-                          </div>
-                          
-                          <p className="text-[10px] text-white/50 uppercase tracking-widest leading-relaxed">
-                            Detecta el producto, elimina el fondo y aumenta la resolución manteniendo el 100% de los detalles originales.
-                          </p>
-
-                          <button 
-                            onClick={handleProductStudioRefine}
-                            disabled={isStudioProcessing}
-                            className="w-full py-4 rounded-xl bg-neon-blue/10 border border-neon-blue/40 text-neon-blue font-black text-[11px] uppercase tracking-[0.2em] hover:bg-neon-blue hover:text-black transition-all flex items-center justify-center gap-3 group shadow-[0_0_20px_rgba(0,209,255,0.1)]"
-                          >
-                            {isStudioProcessing ? <Cpu className="animate-spin" size={16} /> : <Zap className="group-hover:scale-125 transition-transform" size={16} />}
-                            {isStudioProcessing ? 'SEGMENTANDO...' : 'OPTIMIZAR REFERENCIA VISUAL'}
-                          </button>
-                        </motion.div>
-                      )}
-                    </div>
-                  </div>
 
                   {/* Studio Comparison Overlay/Modal */}
                   <AnimatePresence>
@@ -2312,7 +2437,7 @@ export default function App() {
                     {/* Visual Result */}
                     <div className="lg:col-span-1 space-y-4">
                       <div className={cn(
-                        "glass-panel overflow-hidden neon-border relative group transition-all duration-500",
+                        "relative group transition-all duration-500 rounded-2xl overflow-hidden bg-transparent",
                         campaign.aspectRatio === '1:1' ? "aspect-square" : 
                         campaign.aspectRatio === '9:16' ? "aspect-[9/16]" : 
                         "aspect-video"
@@ -2401,7 +2526,15 @@ export default function App() {
                               <h3 className="font-orbitron text-sm font-bold tracking-wider uppercase">{cap.title}</h3>
                             </div>
                             <button 
-                              onClick={() => copyToClipboard(cap.content, cap.id)}
+                              onClick={() => {
+                                if (cap.id === 'aida') {
+                                  const a = cap.content as any;
+                                  const text = `${a.attention}\n\n${a.interest}\n\n${a.desire}\n\n${a.action}`;
+                                  copyToClipboard(text, cap.id);
+                                } else {
+                                  copyToClipboard(cap.content as string, cap.id);
+                                }
+                              }}
                               className={cn(
                                 "p-2 rounded-lg transition-all",
                                 copiedType === cap.id ? "bg-neon-green text-black" : "bg-white/5 hover:bg-white/10 text-white/60"
@@ -2413,19 +2546,21 @@ export default function App() {
                           
                           {cap.id === 'aida' ? (
                             <div className="space-y-4">
-                              {cap.content.split(/[AIDA]:/i).filter(p => p.trim()).map((part, i) => {
-                                const labels = ['Atracción', 'Interés', 'Deseo', 'Acción'];
-                                return (
-                                  <div key={i} className="space-y-1.5">
-                                    <div className="px-2 py-0.5 rounded bg-neon-blue/20 self-start inline-block text-[9px] font-black text-neon-blue uppercase tracking-wider">
-                                      {labels[i]}
-                                    </div>
-                                    <p className="text-sm text-white/80 leading-relaxed font-medium pl-1">
-                                      {part.replace(/^[\s:]+/, '').trim()}
-                                    </p>
+                              {[
+                                { label: 'Atracción', text: (cap.content as any).attention },
+                                { label: 'Interés', text: (cap.content as any).interest },
+                                { label: 'Deseo', text: (cap.content as any).desire },
+                                { label: 'Acción', text: (cap.content as any).action }
+                              ].map((part, i) => (
+                                <div key={i} className="space-y-1.5">
+                                  <div className="px-2 py-0.5 rounded bg-neon-blue/20 self-start inline-block text-[9px] font-black text-neon-blue uppercase tracking-wider">
+                                    {part.label}
                                   </div>
-                                );
-                              })}
+                                  <p className="text-sm text-white/80 leading-relaxed font-medium pl-1">
+                                    {part.text}
+                                  </p>
+                                </div>
+                              ))}
                             </div>
                           ) : (
                             <div className="space-y-4">
@@ -2478,7 +2613,14 @@ export default function App() {
                       ))}
                       
                       <button
-                        onClick={() => metaToken ? setShowPublishModal(true) : setShowSettings(true)}
+                        onClick={() => {
+                          if (metaToken) {
+                            setActiveHomeTab('publicar');
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                          } else {
+                            setShowSettings(true);
+                          }
+                        }}
                         disabled={isPublishing}
                         className="w-full py-4 rounded-xl bg-neon-blue text-black font-black text-sm uppercase tracking-[0.25em] flex items-center justify-center gap-3 hover:bg-neon-blue/80 transition-all shadow-[0_0_25px_rgba(0,209,255,0.4)] disabled:opacity-50"
                       >
@@ -2487,7 +2629,7 @@ export default function App() {
                         ) : (
                           <Zap size={20} />
                         )}
-                        {metaToken ? "CREAR EN META ADS" : "CONFIGURAR CUENTA DE META"}
+                        {metaToken ? "PUBLICAR EN META ADS" : "CONFIGURAR CUENTA DE META"}
                       </button>
                     </div>
                   </div>
@@ -2564,6 +2706,37 @@ export default function App() {
                 </div>
               </div>
             )}
+
+            <div className="flex justify-center py-12 mt-12 mb-10 border-t border-white/5">
+              <button 
+                onClick={() => {
+                  if (results.length > 0) {
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                    setActiveHomeTab('publicar');
+                  }
+                }}
+                className={cn(
+                  "group flex flex-col items-center gap-3 transition-all",
+                  results.length === 0 ? "opacity-30 grayscale cursor-not-allowed" : "cursor-pointer"
+                )}
+              >
+                <div className={cn(
+                  "w-12 h-12 rounded-full border flex items-center justify-center transition-all shadow-[0_0_10px_rgba(255,255,255,0.02)]",
+                  results.length > 0 
+                    ? "bg-neon-blue/10 border-neon-blue/50 group-hover:border-neon-blue/80 shadow-[0_0_15px_rgba(0,209,255,0.2)]" 
+                    : "bg-white/5 border-white/10"
+                )}>
+                  <ChevronDown className={cn(
+                    "transition-colors",
+                    results.length > 0 ? "text-neon-blue" : "text-white/40"
+                  )} size={20} />
+                </div>
+                <span className={cn(
+                  "text-[8px] font-orbitron uppercase tracking-[0.4em] font-black transition-colors",
+                  results.length > 0 ? "text-neon-blue" : "text-white/20"
+                )}>Continuar y Publicar</span>
+              </button>
+            </div>
           </>) : (
                 <motion.div 
                   key="publicar"
@@ -3356,7 +3529,14 @@ export default function App() {
                           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Copia de Anuncio</p>
                           <div className="h-px w-full bg-white/10" />
                           <p className="text-xs text-white/80 leading-relaxed max-h-40 overflow-y-auto scrollbar-thin">
-                            {results[selectedResultIndex]?.captions.aida}
+                            {results[selectedResultIndex] && (
+                              <>
+                                {results[selectedResultIndex].captions.aida.attention}{'\n'}
+                                {results[selectedResultIndex].captions.aida.interest}{'\n'}
+                                {results[selectedResultIndex].captions.aida.desire}{'\n'}
+                                {results[selectedResultIndex].captions.aida.action}
+                              </>
+                            )}
                           </p>
                         </div>
                         <div className="p-4 rounded-xl bg-white/5 border border-white/10">
@@ -3368,7 +3548,7 @@ export default function App() {
                       </div>
                       
                       <div className="w-full md:w-1/2">
-                         <div className="rounded-2xl border border-white/10 overflow-hidden shadow-2xl">
+                         <div className="rounded-2xl overflow-hidden shadow-2xl">
                            <div className="p-3 border-b border-white/5 bg-black/40 flex items-center justify-between">
                              <div className="flex items-center gap-2">
                                <div className="w-6 h-6 rounded-full bg-neon-blue/20 flex items-center justify-center">
@@ -3381,7 +3561,7 @@ export default function App() {
                                <div className="w-1 h-1 rounded-full bg-white/20" />
                              </div>
                            </div>
-                           <div className="aspect-square bg-black overflow-hidden relative">
+                           <div className="aspect-square bg-transparent overflow-hidden relative">
                               {results[selectedResultIndex]?.generatedImageUrl && (
                                 <img 
                                   src={results[selectedResultIndex].generatedImageUrl} 

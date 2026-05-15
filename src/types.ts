@@ -1,6 +1,11 @@
 export interface AdResult {
   captions: {
-    aida: string;
+    aida: {
+      attention: string;
+      interest: string;
+      desire: string;
+      action: string;
+    };
     storytelling: string;
     urgency: string;
   };

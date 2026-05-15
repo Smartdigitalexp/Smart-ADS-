@@ -15,6 +15,7 @@ export async function analyzePerformanceData(
     TAREA:
     Realiza un análisis exhaustivo y profesional de estos datos de publicidad. 
     Identifica patrones, éxitos y fracasos. Proporciona una estrategia clara para el futuro.
+    Responde siempre en español.
 
     ESTRUCTURA DE RESPUESTA:
     1. Resumen: Un resumen ejecutivo de una sola frase sobre el rendimiento general.
@@ -94,13 +95,16 @@ export async function analyzeAndGenerate(
             TAREA:
             Genera ${variantsCount} OPCIONES de anuncios completamente distintas para esta campaña.
             Cada opción debe tener un enfoque creativo único basado en el concepto del cliente pero elevado profesionalmente.
+            Todas las respuestas de texto (concept, headline, captions, analysis) deben estar en español.
+            No menciones los nombres de las secciones (Atención, Interés, etc) dentro del texto de los captions, la estructura JSON ya los separa.
 
             Para cada una de las ${variantsCount} opciones:
             1. Analiza multimodalmente la referencia y úsala como base, elevando la calidad.
-            2. Desarrolla una estrategia única.
+            2. Desarrolla una estrategia única altamente creativa.
             3. Crea un resumen creativo de una sola frase breve (Concepto).
             4. Crea un Título (Headline) breve (máximo 40 caracteres).
-            5. Crea 3 variantes de copy (AIDA, Storytelling, Urgencia).
+            5. Crea variantes de copy (AIDA estructurado, Storytelling, Urgencia).
+               - El copy AIDA debe ser EXTREMADAMENTE persuasivo y adaptado al Objetivo (${campaign.objective}), Audiencia (${campaign.audience}) y Producto (${campaign.productName}).
             6. Define un Performance Score.
             7. Crea un "visualPrompt" detallado para esa opción.
             `
@@ -134,7 +138,16 @@ export async function analyzeAndGenerate(
                 captions: {
                   type: Type.OBJECT,
                   properties: {
-                    aida: { type: Type.STRING },
+                    aida: { 
+                      type: Type.OBJECT,
+                      properties: {
+                        attention: { type: Type.STRING },
+                        interest: { type: Type.STRING },
+                        desire: { type: Type.STRING },
+                        action: { type: Type.STRING }
+                      },
+                      required: ["attention", "interest", "desire", "action"]
+                    },
                     storytelling: { type: Type.STRING },
                     urgency: { type: Type.STRING }
                   },
@@ -191,7 +204,7 @@ export async function analyzeAndGenerate(
             videoConfig: {
               aspectRatio: campaign.aspectRatio === "9:16" ? "9:16" : campaign.aspectRatio === "16:9" ? "16:9" : "1:1"
             },
-            systemInstruction: "Eres un experto en producción de video AI. Toma el visualPrompt como un guión gráfico (storyboard) y genera un video cinematográfico que mantenga la consistencia total con la imagen de referencia proporcionada."
+            systemInstruction: `Eres un Director de Fotografía experto. Genera un video cinematográfico de ALTA CALIDAD y MÁXIMA RESOLUCIÓN. IMPORTANTE: El video debe llenar COMPLETAMENTE el encuadre de ${campaign.aspectRatio} sin ninguna franja negra, borde o letterboxing. El contenido debe ocupar todo el lienzo asignado.`
           } as any
         });
 
@@ -206,7 +219,8 @@ export async function analyzeAndGenerate(
           config: {
             imageConfig: {
               aspectRatio: campaign.aspectRatio === "9:16" ? "9:16" : campaign.aspectRatio === "16:9" ? "16:9" : "1:1"
-            }
+            },
+            systemInstruction: `Genera una imagen publicitaria de ALTA CALIDAD que llene COMPLETAMENTE el lienzo de ${campaign.aspectRatio} sin ninguna franja negra, borde o letterboxing. Máximo detalle y resolución.`
           } as any
         });
 
@@ -220,7 +234,11 @@ export async function analyzeAndGenerate(
     }
 
     finalResults.push({
-      captions: variant.captions || { aida: '', storytelling: '', urgency: '' },
+      captions: variant.captions || { 
+        aida: { attention: '', interest: '', desire: '', action: '' }, 
+        storytelling: '', 
+        urgency: '' 
+      },
       performanceScore: variant.performanceScore || 85,
       analysis: variant.analysis || '',
       concept: variant.concept || '',
@@ -325,12 +343,47 @@ export async function generateVideoFromPrompt(
         aspectRatio: aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : "1:1",
         durationSeconds: duration
       },
-      systemInstruction: "Eres un experto en producción de video AI. Toma el visualPrompt como un guión gráfico (storyboard) y genera un video cinematográfico que mantenga la consistencia total con la imagen de referencia proporcionada."
+      systemInstruction: `Eres un experto cinematográfico. Genera un video de ALTA RESOLUCIÓN que llene COMPLETAMENTE el encuadre solicitado de ${aspectRatio} sin franjas negras ni bordes. El contenido debe expandirse por todo el lienzo.`
     } as any
   });
 
   const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
   return part?.inlineData ? `data:video/mp4;base64,${part.inlineData.data}` : "";
+}
+
+export async function generateImageFromPrompt(
+  prompt: string,
+  aspectRatio: string = '1:1',
+  visualBase64?: string,
+  visualMimeType?: string
+): Promise<string> {
+  const contents = [
+    {
+      parts: [
+        { text: prompt },
+        ...(visualBase64 && visualMimeType ? [{
+          inlineData: {
+            data: visualBase64,
+            mimeType: visualMimeType
+          }
+        }] : [])
+      ]
+    }
+  ];
+
+  const response = await ai.models.generateContent({
+    model: "gemini-2.5-flash-image",
+    contents: contents,
+    config: {
+      imageConfig: {
+        aspectRatio: aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : "1:1"
+      },
+      systemInstruction: `Genera una imagen publicitaria premium de ALTA CALIDAD. El resultado debe llenar COMPLETAMENTE el encuadre de ${aspectRatio} sin ningún tipo de franjas negras, bordes blancos o letterboxing. Resolución máxima.`
+    } as any
+  });
+
+  const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+  return part?.inlineData ? `data:image/png;base64,${part.inlineData.data}` : "";
 }
 
 export async function generateCreativeConcept(
@@ -349,7 +402,7 @@ export async function generateCreativeConcept(
     TAREA:
     Genera un concepto creativo (Slogan + Idea central) de alto impacto para esta campaña publicitaria. 
     El concepto debe ser breve (máximo 150 caracteres), innovador y persuasivo. 
-    Responde únicamente con el texto del concepto.
+    Responde únicamente con el texto del concepto en español.
     `
   });
 

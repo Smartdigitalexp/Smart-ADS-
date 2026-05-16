@@ -345,15 +345,28 @@ export async function generateStorytellingPrompt(
     DURACIÓN: ${duration} segundos.
     
     TAREA:
-    Eres un Director de Cine y Experto en VFX. Transforma el storytelling anterior en un PROMPT TÉCNICO DE VIDEO de altísima calidad para una IA de generación de video (como Luma o Sora).
+    Eres un Director de Cine y Experto en VFX de Clase Mundial. Tu misión es transformar el storytelling y el CTA anterior en un PROMPT TÉCNICO MAESTRO para una IA de generación de video (Luma, Sora, Kling).
     
-    EL PROMPT DEBE INCLUIR EXPLÍCITAMENTE ESTOS 4 PILARES:
-    1. EFECTO AVATAR & DIÁLOGO (CRÍTICO): Indica que el personaje principal (que personifica a la audiencia) debe estar REALIZANDO LIP-SYNC (sincronización labial) de TODO el libreto, INCLUYENDO EL CALL TO ACTION AL FINAL. El personaje debe hablar a cámara o en su entorno como si estuviera narrando la historia y cerrando con el CTA.
-    2. NARRACIÓN TTS INTEGRADA: Describe la voz (ej: voz profunda, cálida, profesional) que narra el storytelling y el CTA a lo largo de los ${duration} segundos.
-    3. DISEÑO SONORO CINEMATOGRÁFICO: Describe los foley (sonidos de fondo: el teclado, el viento, herramientas) y una música ambient/epic equilibrada que sube de intensidad hacia el cierre del CTA.
-    4. COMPOSICIÓN & MOVIMIENTO: Movimientos de cámara dinámicos (dolly zoom, pan, tilt) que sigan la acción del personaje. Cobertura FULL-BLEED (borde a borde).
+    ESTRUCTURA OBLIGATORIA DEL PROMPT (Fórmula Maestra):
+    [Sujeto] + [Acción] + [Escenario] + [Movimiento de cámara] + [Lente] + [Iluminación] + [Estilo visual] + [Parámetros técnicos] + [Restricciones]
     
-    Responde únicamente con el prompt técnico resultante en ESPAÑOL, fusionando visuales, audio y lipsync en una sola narrativa descriptiva.
+    VARIABLES TÉCNICAS A CONSIDERAR POR BLOQUE:
+    1. CONCEPTO (Intención): Define la emoción (Inspiración, Suspenso, Deseo, Exclusividad, Innovación, Confianza).
+    2. SUJETO: Descripción precisa (quién/qué, apariencia, vestuario, expresión, actitud).
+    3. ESCENARIO: Ubicación, época, detalles arquitectónicos y elementos secundarios.
+    4. CINEMATOGRAFÍA (CRÍTICO): 
+       - Movimiento: Dolly in/out, Tracking shot, Orbit, Crane up, Push in, Handheld, Slow pan, Tilt up/down.
+       - Lente: 24mm (amplitud), 35mm (natural), 50mm (cinematográfico equilibrado), 85mm (retrato premium), Macro.
+       - Profundidad: Shallow depth of field, Rack focus, Deep focus.
+    5. ILUMINACIÓN: Soft light, Volumetric lighting, Neon glow, Studio lighting, Rim light, Golden hour.
+    6. ESTILO VISUAL: Cinematic luxury, Hyperrealistic, Apple-style minimalism, Sci-fi realism, Fashion editorial.
+    7. PARÁMETROS: 4K, 24fps (cine), 60fps, 120fps (slow motion), Ultra-detailed, Cinematic motion blur.
+    8. RESTRICCIONES (Negative Prompt): No distortions, no text artifacts, no unnatural motion, no flicker, no extra fingers, no warped faces.
+
+    PRINCIPIO DE DIRECCIÓN:
+    El personaje principal DEBE estar realizando LIP-SYNC (sincronización labial) de TODO el guion (storytelling + CTA). El personaje debe actuar con naturalidad dentro del escenario mientras narra la historia.
+    
+    Responde ÚNICAMENTE con el prompt técnico completo en INGLÉS (para máxima compatibilidad con modelos SOTA) siguiendo la Fórmula Maestra en un solo párrafo narrativo descriptivo de altísima calidad.
     `
   });
   return promptResponse.text?.trim() || "";

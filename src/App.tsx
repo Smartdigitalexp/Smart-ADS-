@@ -591,6 +591,13 @@ export default function App() {
       return;
     }
 
+    // Credit check
+    if (credits !== -1 && credits < 150) {
+      setChatNotification('No tienes suficientes créditos para publicar esta campaña (Costo: 150 créditos).');
+      setShowRecharge(true);
+      return;
+    }
+
     // Validation of mandatory fields based on objective
     const missingFields: string[] = [];
     if (!campaign.budget) missingFields.push('Presupuesto Diario');
@@ -646,6 +653,23 @@ export default function App() {
       });
       
       if (res.success) {
+        // Deduct credits after success
+        if (credits !== -1 && currentUser) {
+          try {
+            const deductRes = await fetch('/api/user/credits/deduct', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId: currentUser.uid, amount: 150 })
+            });
+            const deductData = await deductRes.json();
+            if (deductRes.ok) {
+              setCredits(deductData.remaining);
+            }
+          } catch (e) {
+            console.error("Credit deduction error on publish:", e);
+          }
+        }
+
         setChatNotification(`¡Éxito! Campaña publicada correctamente. ID de Campaña: ${res.campaignId}`);
         alert(`${res.message}\n\nID de Campaña: ${res.campaignId}\n\nPuedes verla en tu Administrador de Anuncios: ${res.metaLink}`);
         setShowPublishModal(false);
@@ -839,6 +863,12 @@ export default function App() {
   };
 
   const handleExecuteAnalysis = async () => {
+    if (credits !== -1 && credits < 100) {
+      setChatNotification('No tienes suficientes créditos para realizar el análisis (Costo: 100 créditos).');
+      setShowRecharge(true);
+      return;
+    }
+
     let dataToAnalyze = [...csvData];
 
     setIsAnalyzing(true);
@@ -867,6 +897,29 @@ export default function App() {
       }
 
       setChatNotification("IA Smart Ads analizando el rendimiento de tus campañas...");
+      
+      // Deduct credits
+      if (credits !== -1 && currentUser) {
+        try {
+          const res = await fetch('/api/user/credits/deduct', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: currentUser.uid, amount: 100 })
+          });
+          const data = await res.json();
+          if (res.ok) {
+            setCredits(data.remaining);
+          } else {
+            setChatNotification('Error en créditos: ' + (data.error || 'Saldo insuficiente.'));
+            setShowRecharge(true);
+            setIsAnalyzing(false);
+            return;
+          }
+        } catch (e) {
+          console.error("Credit deduction error:", e);
+        }
+      }
+
       const report = await analyzePerformanceData(dataToAnalyze);
       setAnalysisReport(report);
       setChatNotification("¡Análisis completado! Revisa los resultados del dashboard.");
@@ -1541,8 +1594,7 @@ export default function App() {
             "fixed inset-y-0 left-0 z-40 w-72 md:w-80 border-r border-neon-blue/20 p-6 flex flex-col gap-6 overflow-y-auto glass-panel rounded-none transition-transform duration-300 shrink-0",
             isSidebarOpen ? "translate-x-0" : "-translate-x-full"
           )}>
-            <div className="flex items-center justify-between lg:flex mb-4">
-              <h2 className="font-orbitron text-sm font-bold text-neon-blue uppercase tracking-widest">Configuración AI</h2>
+            <div className="flex items-center justify-end lg:flex mb-4">
               <button onClick={() => setIsSidebarOpen(false)} className="p-1 text-white/40 hover:text-white transition-colors">
                 <X size={24} />
               </button>
@@ -1956,7 +2008,7 @@ export default function App() {
                           className="w-full py-3 rounded-lg bg-neon-blue/10 border border-neon-blue/30 text-neon-blue font-orbitron text-[10px] font-black uppercase tracking-widest hover:bg-neon-blue hover:text-black transition-all flex items-center justify-center gap-2 group disabled:opacity-30"
                         >
                           {isAnalyzing ? <Cpu className="animate-spin" size={14} /> : <TrendingUp size={14} />}
-                          EJECUTAR ANÁLISIS INTELIGENTE
+                          EJECUTAR ANÁLISIS INTELIGENTE (100 CRÉDITOS)
                         </button>
                       </div>
                     ) : (
@@ -2047,6 +2099,7 @@ export default function App() {
                         activeAssetTool === 'product_img' ? 'ANUNCIOS DE PRODUCTOS' :
                         activeAssetTool === 'animate' ? 'ANUNCIO DE VIDEO' :
                         activeAssetTool === 'edit_img' ? 'EDITAR ANUNCIOS' :
+                        activeAssetTool === 'video_gen' ? 'VIDEO STUDIO' :
                         activeAssetTool.toUpperCase().replace('_', ' ')
                       }
                     </h2>
@@ -2113,6 +2166,7 @@ export default function App() {
                               activeAssetTool === 'product_img' ? 'ANUNCIOS DE PRODUCTOS' :
                               activeAssetTool === 'animate' ? 'ANUNCIO DE VIDEO' :
                               activeAssetTool === 'edit_img' ? 'EDITAR ANUNCIOS' :
+                              activeAssetTool === 'video_gen' ? 'VIDEO STUDIO' :
                               activeAssetTool.toUpperCase().replace('_', ' ')
                             }
                           </h3>
@@ -3565,7 +3619,7 @@ export default function App() {
                   )}
                   {isPublishing 
                     ? "PUBLICANDO EN META..." 
-                    : (publishStep === 'config' ? "SIGUIENTE: VISTA PREVIA" : "Confirmar y Publicar Ahora")}
+                    : (publishStep === 'config' ? "SIGUIENTE: VISTA PREVIA" : "Confirmar y Publicar (150 CRÉDITOS)")}
                 </button>
               </div>
             </motion.div>

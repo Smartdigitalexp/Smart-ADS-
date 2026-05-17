@@ -56,8 +56,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { analyzeAndGenerate, generateCreativeConcept, generateVideoFromPrompt, optimizeProductReference, analyzePerformanceData, generateImageFromPrompt, enhancePrompt, generateStorytellingPrompt } from './services/geminiService';
-import { AdResult, CampaignData, CSVRow, HistoryItem, UserProfile, AnalysisReport } from './types';
+import { analyzeAndGenerate, generateCreativeConcept, generateVideoFromPrompt, optimizeProductReference, analyzePerformanceData, generateImageFromPrompt, enhancePrompt, generateStorytellingPrompt, generateStrategicPlan } from './services/geminiService';
+import { AdResult, CampaignData, CSVRow, HistoryItem, UserProfile, AnalysisReport, StrategicPlan } from './types';
 import { SmartBot } from './components/SmartBot';
 import { Logo } from './components/Logo';
 import {
@@ -177,7 +177,7 @@ export default function App() {
   const [copiedType, setCopiedType] = useState<string | null>(null);
   const [isGeneratingConcept, setIsGeneratingConcept] = useState(false);
   const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
-  const [activeHomeTab, setActiveHomeTab] = useState<'analizar' | 'crear' | 'publicar'>('analizar');
+  const [activeHomeTab, setActiveHomeTab] = useState<'analizar' | 'planificar' | 'crear' | 'publicar'>('analizar');
   const [activeAssetTool, setActiveAssetTool] = useState<'hub' | 'campaign' | 'generate_img' | 'product_img' | 'animate' | 'edit_img' | 'video_gen'>('hub');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
@@ -618,6 +618,25 @@ export default function App() {
     setIsPublishing(true);
     setChatNotification('Iniciando proceso de publicación en Meta Ads...');
     
+    let finalBudget = campaign.budget || '5.00';
+    let finalObjective = campaign.objective;
+    let finalScheduleEnd = campaign.scheduleEnd;
+
+    if (currentResult.funnelPhase) {
+      finalBudget = currentResult.funnelPhase.budget.toString();
+      finalObjective = currentResult.funnelPhase.objective;
+      
+      if (campaign.scheduleStart && currentResult.funnelPhase.duration) {
+        try {
+          const start = new Date(campaign.scheduleStart);
+          const end = new Date(start.getTime() + currentResult.funnelPhase.duration * 24 * 60 * 60 * 1000);
+          finalScheduleEnd = end.toISOString();
+        } catch (e) {
+          console.error("Date calculation error:", e);
+        }
+      }
+    }
+
     try {
       setChatNotification('Paso 1/4: Subiendo multimedia a Meta...');
       const res = await publishAd({
@@ -628,8 +647,8 @@ export default function App() {
         imageUrl: currentResult.generatedImageUrl || '',
         headline: currentResult.headline || campaign.productName, // Copy -> Title
         body: `${currentResult.captions.aida.attention}\n\n${currentResult.captions.aida.interest}\n\n${currentResult.captions.aida.desire}\n\n${currentResult.captions.aida.action}`, // Caption -> Text
-        objective: campaign.objective,
-        budget: campaign.budget || '5.00',
+        objective: finalObjective,
+        budget: finalBudget,
         audience: campaign.audience,
         location: campaign.location,
         gender: campaign.gender,
@@ -649,7 +668,7 @@ export default function App() {
         messengerEnabled: campaign.messengerEnabled,
         advantagePlacementsEnabled: campaign.advantagePlacementsEnabled,
         scheduleStart: campaign.scheduleStart,
-        scheduleEnd: campaign.scheduleEnd
+        scheduleEnd: finalScheduleEnd
       });
       
       if (res.success) {
@@ -791,6 +810,8 @@ export default function App() {
   };
 
   const [analysisReport, setAnalysisReport] = useState<AnalysisReport | null>(null);
+  const [strategicPlan, setStrategicPlan] = useState<StrategicPlan | null>(null);
+  const [isPlanning, setIsPlanning] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const fetchMetaDataResult = async (): Promise<CSVRow[] | null> => {
@@ -932,6 +953,61 @@ export default function App() {
     }
   };
 
+  const handleExecuteStrategicPlan = async () => {
+    if (!campaign.productName || !campaign.budget || !campaign.objective) {
+      setChatNotification('Por favor, completa los campos: Nombre del producto, Presupuesto y Objetivo.');
+      return;
+    }
+
+    if (credits !== -1 && credits < 50) {
+      setChatNotification('Necesitas al menos 50 créditos para generar una Estrategia Digital.');
+      setShowRecharge(true);
+      return;
+    }
+
+    setIsPlanning(true);
+    setChatNotification('Iniciando Planner Estratégico: Diseñando Funnel y Estimaciones...');
+
+    try {
+      // Deduct credits
+      if (credits !== -1 && currentUser) {
+        try {
+          const res = await fetch('/api/user/credits/deduct', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: currentUser.uid, amount: 50 })
+          });
+          const data = await res.json();
+          if (res.ok) {
+            setCredits(data.remaining);
+          } else {
+            setChatNotification('Error en créditos: ' + (data.error || 'Saldo insuficiente.'));
+            setShowRecharge(true);
+            setIsPlanning(false);
+            return;
+          }
+        } catch (e) {
+          console.error("Credit deduction error:", e);
+        }
+      }
+
+      const plan = await generateStrategicPlan(
+        campaign.productName,
+        parseFloat(campaign.budget || '0'),
+        campaign.audience,
+        campaign.objective,
+        campaign.currency
+      );
+      setStrategicPlan(plan);
+      setChatNotification('¡Estrategia Digital Generada! Revisa el Funnel y Cronograma.');
+    } catch (error) {
+      console.error("Strategy Planning Error:", error);
+      setChatNotification("Ocurrió un error al planificar la estrategia.");
+    } finally {
+      setIsPlanning(false);
+    }
+  };
+
   const AnalysisDashboard = ({ data, report }: { data: CSVRow[], report: AnalysisReport | null }) => {
     if (!data.length) return null;
 
@@ -982,7 +1058,7 @@ export default function App() {
                 { label: 'Resultados', value: data.reduce((acc, curr) => acc + curr.resultados, 0) },
                 { label: 'Clics en enlace', value: data.reduce((acc, curr) => acc + (curr.clics_enlace || 0), 0) },
                 { label: 'Interacciones', value: data.reduce((acc, curr) => acc + (curr.engagement || 0), 0) },
-                { label: 'CTR Medio', value: (data.reduce((acc, curr) => acc + curr.ctr, 0) / data.length).toFixed(2) + '%' },
+                { label: 'CTR Medio', value: (data.reduce((acc, curr) => acc + curr.ctr, 0) / data.length).toFixed(1) + '%' },
                 { label: 'CPC Medio', value: '$' + (data.reduce((acc, curr) => acc + (curr.cpc || 0), 0) / data.length).toFixed(2) },
                 { label: 'CPM Medio', value: '$' + (data.reduce((acc, curr) => acc + (curr.cpm || 0), 0) / data.length).toFixed(2) },
                 { label: 'Gasto Total', value: '$' + data.reduce((acc, curr) => acc + (curr.gasto_total || 0), 0).toFixed(2) },
@@ -1256,7 +1332,8 @@ export default function App() {
         csvData,
         visualBase64,
         visualMimeType,
-        variantsCount
+        variantsCount,
+        strategicPlan || undefined
       );
       setResults(res);
       const count = res.length;
@@ -1856,42 +1933,58 @@ export default function App() {
           
           <div className="max-w-4xl mx-auto space-y-12 relative z-10">
             {/* Tabs Navigation */}
-            <div className="grid grid-cols-3 gap-4 w-full">
+            <div className="grid grid-cols-4 gap-4 w-full">
               <button 
                 onClick={() => setActiveHomeTab('analizar')}
                 className={cn(
-                  "py-4 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-2 border shadow-[0_0_15px_rgba(0,209,255,0.1)]",
+                  "py-4 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-2 border shadow-[0_0_15px_rgba(0,209,255,0.1)]",
                   activeHomeTab === 'analizar' 
                     ? "bg-neon-blue text-black border-neon-blue shadow-[0_0_20px_rgba(0,209,255,0.4)]" 
                     : "bg-neon-blue/5 border-neon-blue/30 text-neon-blue/60 hover:border-neon-blue hover:text-neon-blue"
                 )}
               >
                 <TrendingUp size={16} />
-                ANALIZAR
+                <span className="hidden sm:inline">ANALIZAR</span>
+                <span className="sm:hidden">DATA</span>
+              </button>
+              <button 
+                onClick={() => setActiveHomeTab('planificar')}
+                className={cn(
+                  "py-4 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-2 border shadow-[0_0_15px_rgba(0,209,255,0.1)] transition-all",
+                  activeHomeTab === 'planificar' 
+                    ? "bg-neon-blue text-black border-neon-blue shadow-[0_0_20px_rgba(0,209,255,0.4)]" 
+                    : "bg-neon-blue/5 border-neon-blue/30 text-neon-blue/60 hover:border-neon-blue hover:text-neon-blue"
+                )}
+              >
+                <Calendar size={16} />
+                <span className="hidden sm:inline">PLANIFICAR</span>
+                <span className="sm:hidden">PLAN</span>
               </button>
               <button 
                 onClick={() => setActiveHomeTab('crear')}
                 className={cn(
-                  "py-4 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-2 border shadow-[0_0_15px_rgba(0,209,255,0.1)] transition-all",
+                  "py-4 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-2 border shadow-[0_0_15px_rgba(0,209,255,0.1)] transition-all",
                   activeHomeTab === 'crear' 
                     ? "bg-neon-blue text-black border-neon-blue shadow-[0_0_20px_rgba(0,209,255,0.4)]" 
                     : "bg-neon-blue/5 border-neon-blue/30 text-neon-blue/60 hover:border-neon-blue hover:text-neon-blue"
                 )}
               >
                 <Zap size={16} />
-                CREAR
+                <span className="hidden sm:inline">CREAR</span>
+                <span className="sm:hidden">ADS</span>
               </button>
               <button 
                 onClick={() => setActiveHomeTab('publicar')}
                 className={cn(
-                  "py-4 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-2 border shadow-[0_0_15px_rgba(0,209,255,0.1)] transition-all",
+                  "py-4 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-2 border shadow-[0_0_15px_rgba(0,209,255,0.1)] transition-all",
                   activeHomeTab === 'publicar' 
                     ? "bg-neon-blue text-black border-neon-blue shadow-[0_0_20px_rgba(0,209,255,0.4)]" 
                     : "bg-neon-blue/5 border-neon-blue/30 text-neon-blue/60 hover:border-neon-blue hover:text-neon-blue"
                 )}
               >
                 <Send size={16} />
-                PUBLICAR
+                <span className="hidden sm:inline">PUBLISH</span>
+                <span className="sm:hidden">POST</span>
               </button>
             </div>
 
@@ -2073,8 +2166,390 @@ export default function App() {
                     </div>
                   )}
                 </motion.div>
+              ) : activeHomeTab === 'planificar' ? (
+                <motion.div 
+                  key="planificar"
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                  className="space-y-8"
+                >
+                  <div className="flex flex-col gap-2">
+                    <h2 className="font-orbitron text-base md:text-lg font-bold flex items-center gap-2">
+                      <Calendar className="text-neon-blue" /> PLAN DE MEDIOS
+                    </h2>
+                    <p className="text-[10px] text-white/40 uppercase tracking-widest leading-relaxed">
+                      Diseña tu estrategia de medios digital profesional de forma automatizada con IA.
+                    </p>
+                  </div>
+
+                  {!strategicPlan ? (
+                    <div className="glass-panel p-8 border-neon-blue/20 bg-neon-blue/5 space-y-8 text-center">
+                      <div className="max-w-md mx-auto space-y-6">
+                        <div className="w-16 h-16 rounded-full bg-neon-blue/10 border border-neon-blue/30 flex items-center justify-center mx-auto">
+                          <Brain className="text-neon-blue animate-pulse" size={32} />
+                        </div>
+                        <h3 className="font-orbitron text-sm font-bold text-white uppercase tracking-wider">Configura tu Plan de Medios</h3>
+                        <p className="text-[11px] text-white/50 leading-relaxed uppercase tracking-widest">
+                          Nuestro sistema neural calculará las fases, objetivos, inversión y resultados estimados basados en tus variables.
+                        </p>
+                        
+                        <div className="grid grid-cols-1 gap-4 text-left">
+                          <div className="space-y-2">
+                             <label className="text-[9px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Nombre del Producto / Servicio</label>
+                             <input 
+                               type="text" 
+                               value={campaign.productName}
+                               onChange={(e) => setCampaign(prev => ({ ...prev, productName: e.target.value }))}
+                               placeholder="Ej: Smart Watch X-1"
+                               className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-xs text-white/80 focus:border-neon-blue outline-none font-orbitron"
+                             />
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                               <label className="text-[9px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Presupuesto Total (USD)</label>
+                               <input 
+                                 type="number" 
+                                 value={campaign.budget}
+                                 onChange={(e) => setCampaign(prev => ({ ...prev, budget: e.target.value }))}
+                                 placeholder="500"
+                                 className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-xs text-white/80 focus:border-neon-blue outline-none font-orbitron"
+                               />
+                            </div>
+                            <div className="space-y-2">
+                               <label className="text-[9px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Moneda</label>
+                               <select 
+                                 value={campaign.currency}
+                                 onChange={(e) => setCampaign(prev => ({ ...prev, currency: e.target.value }))}
+                                 className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-xs text-white/80 focus:border-neon-blue outline-none font-orbitron"
+                               >
+                                 <option value="USD">USD</option>
+                                 <option value="COP">COP</option>
+                                 <option value="MXN">MXN</option>
+                               </select>
+                            </div>
+                          </div>
+                        </div>
+
+                        <button 
+                          onClick={handleExecuteStrategicPlan}
+                          disabled={isPlanning}
+                          className="w-full py-4 rounded-xl bg-neon-blue text-black font-black uppercase tracking-[0.2em] text-[10px] shadow-[0_0_20px_rgba(0,209,255,0.4)] hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+                        >
+                          {isPlanning ? (
+                            <>
+                              <RefreshCcw className="animate-spin" size={16} />
+                              PROCESANDO ESTRATEGIA...
+                            </>
+                          ) : (
+                            <>
+                              <Bot size={16} />
+                              GENERAR PLAN ESTRATÉGICO (50 CRÉDITOS)
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                      {/* Visual Funnel Summary */}
+                      <div className="flex flex-col items-center justify-center py-10 w-full relative">
+                        <div 
+                          className="w-full max-w-[320px] h-[320px] relative overflow-hidden shadow-2xl border-t border-white/5"
+                          style={{ clipPath: 'polygon(0 0, 100% 0, 50% 100%)' }}
+                        >
+                          {strategicPlan.phases.map((phase, idx) => {
+                            const objectiveWord = phase.objective.split(' ')[0].toUpperCase();
+                            return (
+                              <motion.div
+                                key={`visual-funnel-${idx}`}
+                                initial={{ opacity: 0, scaleY: 0 }}
+                                animate={{ opacity: 1, scaleY: 1 }}
+                                transition={{ delay: idx * 0.15, duration: 0.6, ease: "easeOut" }}
+                                className={cn(
+                                  "h-1/3 w-full flex items-center justify-center relative transition-colors hover:bg-white/5 group pt-4",
+                                  idx === 0 ? "bg-neon-blue/40" : 
+                                  idx === 1 ? "bg-neon-blue/30" : 
+                                  "bg-neon-blue/20"
+                                )}
+                                style={{ transformOrigin: 'top' }}
+                              >
+                                <div className="flex flex-col items-center text-center px-4 relative z-10">
+                                  <span className="font-orbitron text-[10px] sm:text-[12px] font-black text-white uppercase tracking-tighter leading-none">{phase.name}</span>
+                                  <span className="font-orbitron text-[8px] sm:text-[10px] text-neon-blue font-black uppercase tracking-[0.2em] mt-2 group-hover:text-white transition-colors">{objectiveWord}</span>
+                                </div>
+                                <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent pointer-events-none" />
+                              </motion.div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Strategic Summary */}
+                      <div className="glass-panel p-6 bg-neon-blue/5 border-neon-blue/20">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+                          <div className="flex items-center gap-3">
+                            <Target className="text-neon-blue" size={20} />
+                            <h3 className="font-orbitron text-xs font-bold text-white uppercase tracking-widest">ESTRATEGIA DE MEDIOS</h3>
+                          </div>
+                          <button 
+                            onClick={() => {
+                              setActiveHomeTab('publicar');
+                              processAds();
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
+                            }}
+                            className="px-6 py-3 rounded-xl bg-neon-blue text-black font-black uppercase tracking-widest text-[9px] flex items-center justify-center gap-2 hover:scale-105 active:scale-95 transition-all shadow-[0_0_20px_rgba(0,209,255,0.4)]"
+                          >
+                            <Zap size={14} className="fill-current" />
+                            CREAR ANUNCIOS DE LA ESTRATEGIA
+                          </button>
+                        </div>
+                        <p className="text-xs text-white/70 leading-relaxed italic">{strategicPlan.summary}</p>
+                      </div>
+
+                      {/* Funnel Visualization */}
+                      <div className="space-y-6">
+                        <h3 className="font-orbitron text-[10px] font-bold text-neon-blue uppercase tracking-widest text-center">FUNNEL DE CONVERSIÓN</h3>
+                        <div className="flex flex-col items-center gap-6">
+                          {strategicPlan.phases.map((phase, idx) => (
+                            <motion.div 
+                              key={idx}
+                              initial={{ opacity: 0, y: 20 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ delay: idx * 0.2 }}
+                              className="w-full max-w-3xl relative group"
+                            >
+                              <div className={cn(
+                                "glass-panel p-6 border-white/10 relative overflow-hidden transition-all group-hover:border-neon-blue/40",
+                                idx === 0 ? "bg-neon-blue/20" : idx === 1 ? "bg-neon-blue/10" : "bg-neon-blue/5"
+                              )}>
+                                <div className="absolute top-0 right-0 p-3">
+                                  <span className="font-orbitron text-[8px] font-black text-white/20 uppercase">FASE 0{idx + 1}</span>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                  <div className="space-y-3">
+                                    <h4 className="font-orbitron text-sm font-bold text-neon-blue uppercase">{phase.name}</h4>
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-2">
+                                        <Target size={12} className="text-neon-blue" />
+                                        <span className="text-[8px] font-orbitron text-white/40 uppercase tracking-widest font-bold">Objetivo</span>
+                                      </div>
+                                      <p className="text-[10px] font-bold text-white/80 uppercase">{phase.objective}</p>
+                                    </div>
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-2">
+                                        <Brain size={12} className="text-neon-blue" />
+                                        <span className="text-[8px] font-orbitron text-white/40 uppercase tracking-widest font-bold">Concepto</span>
+                                      </div>
+                                      <p className="text-[10px] text-white/50 leading-relaxed">{phase.message}</p>
+                                    </div>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-4">
+                                     <div className="space-y-1">
+                                       <p className="text-[8px] text-white/30 uppercase tracking-widest">Inversión</p>
+                                       <p className="font-orbitron text-xs font-bold text-green-400">
+                                         ${Math.round(phase.investment).toLocaleString()} {campaign.currency}
+                                       </p>
+                                     </div>
+                                     <div className="space-y-1">
+                                       <p className="text-[8px] text-white/30 uppercase tracking-widest">Duración</p>
+                                       <p className="font-orbitron text-xs font-bold text-white">{phase.durationDays} Días</p>
+                                     </div>
+                                     <div className="space-y-1">
+                                       <p className="text-[8px] text-white/30 uppercase tracking-widest">Impresiones</p>
+                                       <p className="font-orbitron text-xs font-bold text-white">{Math.round(phase.estimates.impressions).toLocaleString()}</p>
+                                     </div>
+                                     <div className="space-y-1">
+                                       <p className="text-[8px] text-white/30 uppercase tracking-widest">Resultados</p>
+                                       <p className="font-orbitron text-xs font-bold text-neon-blue">{Math.round(phase.estimates.conversions).toLocaleString()} Conv.</p>
+                                     </div>
+                                  </div>
+                                </div>
+                                
+                                <div className="mt-4 pt-4 border-t border-white/5 flex flex-wrap gap-4">
+                                  <div className="flex items-center gap-2">
+                                    <Layout size={12} className="text-neon-blue" />
+                                    <span className="text-[9px] text-white/60 uppercase">{phase.formats.join(', ')}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <ImageIcon size={12} className="text-neon-blue" />
+                                    <span className="text-[9px] text-white/60 uppercase">{phase.contentTypes.join(', ')}</span>
+                                  </div>
+                                </div>
+                              </div>
+                              {idx < strategicPlan.phases.length - 1 && (
+                                <div className="flex justify-center -my-2 relative z-10">
+                                  <div className="w-8 h-8 rounded-full bg-deep-blue border border-neon-blue/30 flex items-center justify-center text-neon-blue">
+                                    <ChevronDown size={16} />
+                                  </div>
+                                </div>
+                              )}
+                            </motion.div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Estimated Results Table */}
+                      <div className="glass-panel p-6 bg-white/5 border-white/10">
+                        <h3 className="font-orbitron text-[10px] font-bold text-white uppercase tracking-widest mb-6 px-2">PROYECCIÓN DE RESULTADOS POR FASE</h3>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr className="border-b border-white/10">
+                                <th className="py-4 px-4 text-[9px] font-orbitron text-white/40 uppercase tracking-[0.2em]">Fase</th>
+                                <th className="py-4 px-4 text-[9px] font-orbitron text-white/40 uppercase tracking-[0.2em]">Impresiones</th>
+                                <th className="py-4 px-4 text-[9px] font-orbitron text-white/40 uppercase tracking-[0.2em]">CTR</th>
+                                <th className="py-4 px-4 text-[9px] font-orbitron text-white/40 uppercase tracking-[0.2em]">Clics</th>
+                                <th className="py-4 px-4 text-[9px] font-orbitron text-white/40 uppercase tracking-[0.2em]">CPC</th>
+                                <th className="py-4 px-4 text-[9px] font-orbitron text-white/40 uppercase tracking-[0.2em]">CPM</th>
+                                <th className="py-4 px-4 text-[9px] font-orbitron text-white/40 uppercase tracking-[0.2em]">Conv.</th>
+                                <th className="py-4 px-4 text-[9px] font-orbitron text-white/40 uppercase tracking-[0.2em]">CPA</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {strategicPlan.phases.map((phase, i) => (
+                                <tr key={i} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                                  <td className="py-4 px-4 font-orbitron text-[10px] text-neon-blue">{phase.name}</td>
+                                  <td className="py-4 px-4 text-[10px] text-white">{Math.round(phase.estimates.impressions).toLocaleString()}</td>
+                                  <td className="py-4 px-4 text-[10px] text-white">{phase.estimates.ctr.toFixed(1)}%</td>
+                                  <td className="py-4 px-4 text-[10px] text-white">{Math.round(phase.estimates.clicks).toLocaleString()}</td>
+                                  <td className="py-4 px-4 text-[10px] text-white">${Math.round(phase.estimates.cpc).toLocaleString()}</td>
+                                  <td className="py-4 px-4 text-[10px] text-white">${Math.round(phase.estimates.cpm).toLocaleString()}</td>
+                                  <td className="py-4 px-4 text-[10px] font-bold text-neon-green">{Math.round(phase.estimates.conversions).toLocaleString()}</td>
+                                  <td className="py-4 px-4 text-[10px] text-white">{phase.estimates.cpa ? `$${Math.round(phase.estimates.cpa).toLocaleString()}` : '-'}</td>
+                                </tr>
+                              ))}
+                              <tr className="bg-neon-blue/10">
+                                <td className="py-4 px-4 font-orbitron text-[10px] text-white font-black">TOTAL ESTIMADO</td>
+                                <td className="py-4 px-4 text-[10px] text-white">{Math.round(strategicPlan.phases.reduce((acc, p) => acc + p.estimates.impressions, 0)).toLocaleString()}</td>
+                                <td className="py-4 px-4 text-[10px] text-white">-</td>
+                                <td className="py-4 px-4 text-[10px] text-white">{Math.round(strategicPlan.phases.reduce((acc, p) => acc + p.estimates.clicks, 0)).toLocaleString()}</td>
+                                <td className="py-4 px-4 text-[10px] text-white">-</td>
+                                <td className="py-4 px-4 text-[10px] text-white">-</td>
+                                <td className="py-4 px-4 text-[10px] font-black text-neon-green">{Math.round(strategicPlan.estimatedTotalConversions).toLocaleString()}</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      {/* Visual Schedule (Cronograma) */}
+                      <div className="glass-panel p-8 bg-black/40 border-white/10">
+                        <div className="flex items-center justify-between mb-8">
+                          <div className="flex items-center gap-3">
+                            <Calendar className="text-neon-blue" size={20} />
+                            <h3 className="font-orbitron text-xs font-bold text-white uppercase tracking-widest">CRONOGRAMA DE EJECUCIÓN</h3>
+                          </div>
+                          <div className="flex items-center gap-6">
+                            <div className="flex flex-col items-end">
+                              <span className="text-[8px] text-white/40 uppercase tracking-widest">Inversión Total</span>
+                              <span className="font-orbitron text-xs font-black text-green-400">${Math.round(strategicPlan.totalInvestment).toLocaleString()} {campaign.currency}</span>
+                            </div>
+                            <div className="flex flex-col items-end">
+                              <span className="text-[8px] text-white/40 uppercase tracking-widest">Duración Total</span>
+                              <span className="font-orbitron text-xs font-black text-white">{Math.round(strategicPlan.phases.reduce((acc, p) => acc + p.durationDays, 0))} DÍAS</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-12">
+                          <div className="relative pt-8">
+                            {/* Graphic Header with Objective and Investment per phase */}
+                            <div className="flex w-full mb-4">
+                              {strategicPlan.phases.map((phase, idx) => (
+                                <div 
+                                  key={`header-${idx}`}
+                                  className="text-center px-1"
+                                  style={{ width: `${(phase.durationDays / strategicPlan.phases.reduce((acc, p) => acc + p.durationDays, 0)) * 100}%` }}
+                                >
+                                  <motion.div 
+                                    initial={{ opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: 0.5 + idx * 0.2 }}
+                                    className="space-y-1"
+                                  >
+                                    <p className="text-[7px] font-orbitron text-neon-blue font-black uppercase truncate">{phase.objective}</p>
+                                    <p className="text-[8px] font-bold text-white/80">${Math.round(phase.investment).toLocaleString()}</p>
+                                  </motion.div>
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Main Progress Bar */}
+                            <div className="h-6 w-full bg-white/5 rounded-full overflow-hidden flex border border-white/10 shadow-inner">
+                              {strategicPlan.phases.map((phase, idx) => (
+                                <motion.div 
+                                  key={`bar-${idx}`}
+                                  initial={{ width: 0 }}
+                                  animate={{ width: `${(phase.durationDays / strategicPlan.phases.reduce((acc, p) => acc + p.durationDays, 0)) * 100}%` }}
+                                  transition={{ duration: 1, delay: idx * 0.3 }}
+                                  className={cn(
+                                    "h-full relative group cursor-help",
+                                    idx === 0 ? "bg-neon-blue" : idx === 1 ? "bg-neon-blue/70" : "bg-neon-blue/40"
+                                  )}
+                                >
+                                  <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(255,255,255,0.05)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.05)_50%,rgba(255,255,255,0.05)_75%,transparent_75%,transparent)] bg-[length:15px_15px] animate-shimmer opacity-30" />
+                                  <div className="absolute inset-0 flex items-center justify-center">
+                                    <span className="text-[7px] font-black text-black uppercase tracking-tighter opacity-0 group-hover:opacity-100 transition-opacity">
+                                      {phase.durationDays}D
+                                    </span>
+                                  </div>
+                                </motion.div>
+                              ))}
+                            </div>
+
+                            {/* Phase Names and Durations labels below the bar */}
+                            <div className="flex w-full mt-4">
+                              {strategicPlan.phases.map((phase, idx) => (
+                                <div 
+                                  key={`footer-${idx}`}
+                                  className="text-center px-1"
+                                  style={{ width: `${(phase.durationDays / strategicPlan.phases.reduce((acc, p) => acc + p.durationDays, 0)) * 100}%` }}
+                                >
+                                  <div className="space-y-1">
+                                    <p className="text-[8px] font-orbitron text-white/60 font-bold uppercase truncate">{phase.name}</p>
+                                    <p className="text-[7px] text-white/30 uppercase tracking-[0.2em]">{phase.durationDays} DÍAS</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="mt-10 pt-6 border-t border-white/10">
+                          <p className="text-[10px] text-white/50 leading-relaxed italic">
+                            <span className="text-neon-blue font-bold tracking-widest mr-2 uppercase font-orbitron">Consejo Estratégico:</span>
+                            {strategicPlan.strategicAdvice}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Action Button */}
+                      <button 
+                        onClick={() => {
+                          setActiveHomeTab('publicar');
+                          processAds();
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        className="w-full py-6 rounded-2xl bg-neon-blue text-black font-black uppercase text-xs tracking-[0.3em] shadow-[0_0_40px_rgba(0,209,255,0.4)] hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-4 group"
+                      >
+                        <Zap className="fill-current group-hover:scale-110 transition-transform" size={20} />
+                        CREAR LOS 3 ANUNCIOS DE LA ESTRATEGIA AHORA
+                        <Sparkles size={18} className="animate-pulse" />
+                      </button>
+
+                      <button 
+                        onClick={() => setActiveHomeTab('crear')}
+                        className="w-full py-4 text-[9px] font-orbitron text-white/40 uppercase tracking-[0.3em] hover:text-white transition-colors"
+                      >
+                        O prefiero configurar los anuncios manualmente
+                      </button>
+                    </div>
+                  )}
+                </motion.div>
               ) : activeHomeTab === 'crear' ? (
-                <>
+                <React.Fragment key="crear-content">
                   <motion.div 
                     key="crear"
                   initial={{ opacity: 0, scale: 0.98 }}
@@ -2421,27 +2896,28 @@ export default function App() {
                   className="mt-20 space-y-8 pb-20 border-t border-white/10 pt-20"
                 >
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-6 border-b border-white/10 pb-6">
-                    <div className="flex flex-col gap-2">
-                       <h2 className="font-orbitron text-lg md:text-xl font-bold flex items-center gap-2">
-                        <Zap className="text-neon-blue" /> ANUNCIOS GENERADOS
-                      </h2>
-                      <div className="flex items-center gap-2">
-                        {results.map((_, idx) => (
-                          <button
-                            key={idx}
-                            onClick={() => setSelectedResultIndex(idx)}
-                            className={cn(
-                              "px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all",
-                              selectedResultIndex === idx 
-                                ? "bg-neon-blue text-black shadow-[0_0_15px_rgba(0,209,255,0.4)]" 
-                                : "bg-white/5 text-white/40 hover:bg-white/10 hover:text-white"
-                            )}
-                          >
-                            OPCIÓN {idx + 1}
-                          </button>
-                        ))}
+                      <div className="flex flex-col gap-2">
+                         <h2 className="font-orbitron text-lg md:text-xl font-bold flex items-center gap-2">
+                          <Zap className="text-neon-blue" /> ANUNCIOS GENERADOS
+                        </h2>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {results.map((res, idx) => (
+                            <button
+                              key={idx}
+                              onClick={() => setSelectedResultIndex(idx)}
+                              className={cn(
+                                "px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all flex items-center gap-2",
+                                selectedResultIndex === idx 
+                                  ? "bg-neon-blue text-black shadow-[0_0_15px_rgba(0,209,255,0.4)]" 
+                                  : "bg-white/5 text-white/40 hover:bg-white/10 hover:text-white"
+                              )}
+                            >
+                              OPCIÓN {idx + 1}
+                              {res.funnelPhase && <span className="opacity-60 text-[8px]">({res.funnelPhase.name})</span>}
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                    </div>
 
                     <div className="flex items-center gap-6">
                       <div className="flex flex-col items-end">
@@ -2779,7 +3255,8 @@ export default function App() {
                 )}>Continuar y Publicar</span>
               </button>
             </div>
-          </>) : (
+          </React.Fragment>
+              ) : (
                 <motion.div 
                   key="publicar"
                   initial={{ opacity: 0, scale: 0.98 }}
@@ -2787,16 +3264,30 @@ export default function App() {
                   exit={{ opacity: 0, scale: 0.98 }}
                   className="space-y-8"
                 >
-                  <div className="flex flex-col gap-2">
-                    <h2 className="font-orbitron text-base md:text-lg font-bold flex items-center gap-2">
-                      <Send className="text-neon-blue" /> PUBLICAR ANUNCIOS
-                    </h2>
-                    <p className="text-[10px] text-white/40 uppercase tracking-widest leading-relaxed">
-                      Configura la segmentación neural y lanza tus piezas directamente a Meta Ads.
-                    </p>
-                  </div>
+                    <div className="flex flex-col gap-2">
+                      <h2 className="font-orbitron text-base md:text-lg font-bold flex items-center gap-2">
+                        <Send className="text-neon-blue" /> PUBLICAR ANUNCIOS
+                      </h2>
+                      <p className="text-[10px] text-white/40 uppercase tracking-widest leading-relaxed">
+                        Configura la segmentación neural y lanza tus piezas directamente a Meta Ads.
+                      </p>
+                    </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {results[selectedResultIndex]?.funnelPhase && (
+                      <div className="glass-panel p-4 bg-neon-blue/20 border-neon-blue/40 flex items-center gap-4 animate-pulse">
+                        <div className="w-10 h-10 rounded-full bg-neon-blue/20 flex items-center justify-center text-neon-blue">
+                          <Target size={20} />
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="font-orbitron text-[10px] font-black text-neon-blue uppercase tracking-widest">ESTRATEGIA DIGITAL OPTIMIZADA</h4>
+                          <p className="text-[9px] text-white/70 uppercase tracking-widest leading-tight">
+                            Este anuncio se publicará como la fase <span className="text-neon-blue font-bold">"{results[selectedResultIndex].funnelPhase.name}"</span> con presupuesto de <span className="text-neon-blue font-bold">${results[selectedResultIndex].funnelPhase.budget} USD</span> y objetivo de <span className="text-neon-blue font-bold">"{results[selectedResultIndex].funnelPhase.objective}"</span>.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* Campaign Configuration */}
                     <div className="glass-panel p-6 border-white/10 bg-white/5 space-y-6">
                       <h3 className="font-orbitron text-xs font-bold text-neon-blue uppercase tracking-wider flex items-center gap-2">

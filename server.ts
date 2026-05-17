@@ -562,12 +562,12 @@ async function startServer() {
             custom_event_type: 'PURCHASE' 
           };
         }
-      } else if (objective === 'Tráfico' || objective === 'Traffic') {
+      } else if (objective === 'Tráfico' || objective === 'Traffic' || objective === 'Consideración' || objective === 'Consideration') {
         metaObjective = 'OUTCOME_TRAFFIC';
         optimizationGoal = 'LANDING_PAGE_VIEWS';
       } else if (objective === 'Leads') {
         metaObjective = 'OUTCOME_LEADS';
-      } else if (objective === 'Reconocimiento') {
+      } else if (objective === 'Reconocimiento' || objective === 'Awareness') {
         metaObjective = 'OUTCOME_AWARENESS';
         optimizationGoal = 'REACH';
       }

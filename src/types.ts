@@ -14,6 +14,12 @@ export interface AdResult {
   concept: string;
   headline: string;
   generatedImageUrl?: string;
+  funnelPhase?: {
+    name: string;
+    objective: string;
+    budget: number;
+    duration: number;
+  };
 }
 
 export interface GenerationResponse {
@@ -100,6 +106,34 @@ export interface AdPerformanceItem {
   cpc: number;
   cpm: number;
   gasto_total: number;
+}
+
+export interface FunnelPhase {
+  name: string;
+  objective: string;
+  message: string;
+  formats: string[];
+  contentTypes: string[];
+  durationDays: number;
+  investment: number;
+  estimates: {
+    impressions: number;
+    reach: number;
+    clicks: number;
+    ctr: number;
+    cpc: number;
+    cpm: number;
+    conversions: number;
+    cpa?: number;
+  };
+}
+
+export interface StrategicPlan {
+  summary: string;
+  phases: FunnelPhase[];
+  totalInvestment: number;
+  estimatedTotalConversions: number;
+  strategicAdvice: string;
 }
 
 export interface HistoryItem {

@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { AdResult, CampaignData, CSVRow, AnalysisReport } from "../types";
+import { AdResult, CampaignData, CSVRow, AnalysisReport, StrategicPlan } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -71,8 +71,33 @@ export async function analyzeAndGenerate(
   csvData: CSVRow[],
   visualBase64?: string,
   visualMimeType?: string,
-  variantsCount: number = 3
+  variantsCount: number = 3,
+  strategicPlan?: StrategicPlan
 ): Promise<AdResult[]> {
+  const isFunnelMode = strategicPlan && strategicPlan.phases && strategicPlan.phases.length > 0 && variantsCount === 3;
+  
+  const funnelInstruction = isFunnelMode ? `
+    MODO ESTRATEGIA DIGITAL ACTIVADO:
+    Has diseñado previamente una Estrategia Digital con 3 fases. Genera EXACTAMENTE 3 variantes, una para cada fase del embudo:
+    
+    FASE 1: ${strategicPlan.phases[0].name} (${strategicPlan.phases[0].objective})
+    - Mensaje: ${strategicPlan.phases[0].message}
+    - Formatos: ${strategicPlan.phases[0].formats.join(', ')}
+    - Inversión: ${strategicPlan.phases[0].investment} USD
+    
+    FASE 2: ${strategicPlan.phases[1].name} (${strategicPlan.phases[1].objective})
+    - Mensaje: ${strategicPlan.phases[1].message}
+    - Formatos: ${strategicPlan.phases[1].formats.join(', ')}
+    - Inversión: ${strategicPlan.phases[1].investment} USD
+    
+    FASE 3: ${strategicPlan.phases[2].name} (${strategicPlan.phases[2].objective})
+    - Mensaje: ${strategicPlan.phases[2].message}
+    - Formatos: ${strategicPlan.phases[2].formats.join(', ')}
+    - Inversión: ${strategicPlan.phases[2].investment} USD
+    
+    Cada variante debe estar estrictamente alineada con el objetivo y mensaje de su fase correspondiente.
+  ` : '';
+
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: [
@@ -90,12 +115,14 @@ export async function analyzeAndGenerate(
             Relación de Aspecto: ${campaign.aspectRatio}
             ${campaign.format === 'video' ? `Duración del Video: ${campaign.videoDuration} segundos` : ''}
 
+            ${funnelInstruction}
+
             DATOS HISTÓRICOS (.csv):
             ${csvData.length > 0 ? JSON.stringify(csvData) : "No se han proporcionado datos históricos (.csv)."}
 
             TAREA:
             Genera ${variantsCount} OPCIONES de anuncios completamente distintas para esta campaña.
-            Cada opción debe tener un enfoque creativo único basado en el concepto y las instrucciones proporcionadas, pero elevando la calidad técnica y estética.
+            Cada opción debe tener un enfoque creativo único basado en el concepto y las instrucciones proporcionadas${isFunnelMode ? ', siguiendo estrictamente las 3 fases del embudo digital' : ''}, pero elevando la calidad técnica y estética.
             Si el usuario proporciona una instrucción básica, amplíala con detalles sobre iluminación cinematográfica, estilo visual profesional de alta gama, composición de cámara y texturas de ultra-resolución para maximizar el impacto publicitario, siempre alineado con la visión del usuario.
             Todas las respuestas de texto (concept, headline, captions, analysis) deben estar en español.
             No menciones los nombres de las secciones (Atención, Interés, etc) dentro del texto de los captions, la estructura JSON ya los separa.
@@ -106,7 +133,6 @@ export async function analyzeAndGenerate(
             3. Crea un resumen creativo de una sola frase breve (Concepto).
             4. Crea un Título (Headline) breve (máximo 40 caracteres).
             5. Crea variantes de copy (AIDA estructurado, Storytelling, Urgencia).
-               - El copy AIDA debe ser EXTREMADAMENTE persuasivo y adaptado al Objetivo (${campaign.objective}), Audiencia (${campaign.audience}) y Producto (${campaign.productName}).
             6. Define un Performance Score.
             7. Crea un "visualPrompt" detallado para esa opción.
             `
@@ -255,7 +281,13 @@ export async function analyzeAndGenerate(
       analysis: variant.analysis || '',
       concept: variant.concept || '',
       headline: variant.headline || '',
-      generatedImageUrl: imageUrl
+      generatedImageUrl: imageUrl,
+      funnelPhase: isFunnelMode ? {
+        name: strategicPlan.phases[finalResults.length].name,
+        objective: strategicPlan.phases[finalResults.length].objective,
+        budget: strategicPlan.phases[finalResults.length].investment,
+        duration: strategicPlan.phases[finalResults.length].durationDays
+      } : undefined
     });
   }
 
@@ -482,6 +514,118 @@ export async function generateCreativeConcept(
   });
 
   return response.text?.trim() || "";
+}
+
+export async function generateStrategicPlan(
+  productName: string,
+  totalBudget: number,
+  audience: string,
+  objective: string,
+  currency: string = 'USD'
+): Promise<StrategicPlan> {
+  const isCOP = currency === 'COP';
+
+  const kpiInstructions = isCOP ? `
+    REGLAS DE CÁLCULO DE KPIs (MERCADO COLOMBIA - COP):
+    1. Fase de RECONOCIMIENTO (Awareness):
+       - CPM: $1,580 COP.
+       - Impresiones = (Presupuesto fase / CPM) * 1000.
+       - CTR: 0.1%.
+       - Clics = Impresiones * CTR.
+       - Porcentaje de Conversión: 0.5% de los Clics.
+    2. Fase de CONSIDERACIÓN (Tráfico/Consideration):
+       - CPM: $2,500 COP.
+       - Impresiones = (Presupuesto fase / CPM) * 1000.
+       - CTR: 1%.
+       - Clics = Impresiones * CTR.
+       - Porcentaje de Conversión: 1% de los Clics.
+    3. Fase de CONVERSIÓN (Conversion):
+       - CPM: $10,000 COP (para cálculo de Alcance/Impresiones).
+       - Impresiones = (Presupuesto fase / CPM) * 1000.
+       - CTR: 2%.
+       - Clics = Impresiones * CTR.
+       - Porcentaje de Conversión: 2.5% de los Clics.
+       - CPA (Costo por Adquisición) = Inversión de esta fase / Conversiones.
+  ` : `
+    REGLAS DE CÁLCULO DE KPIs (USD):
+    - Usa benchmarks internacionales estándar de Meta Ads para proyecciones de impresiones, clics y conversiones.
+  `;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: `
+    PRODUCTO: ${productName}
+    PRESUPUESTO TOTAL: ${totalBudget} ${currency}
+    AUDIENCIA: ${audience}
+    OBJETIVO PRINCIPAL: ${objective}
+    CURRENCY: ${currency}
+
+    TAREA:
+    Eres un Planner de Medios Digitales Estratégico Senior. Tu tarea es diseñar una ESTRATEGIA DE MEDIOS DIGITAL PROFESIONAL y COMPLETA.
+    Debes estructurar la estrategia en un Funnel de Conversión (Embudo) de 3 fases: RECONOCIMIENTO (AWARENESS), CONSIDERACIÓN (CONSIDERATION) y CONVERSIÓN (CONVERSION).
+
+    ${kpiInstructions}
+
+    REQUERIMIENTOS POR FASE:
+    1. Nombre de la fase.
+    2. Objetivo específico de la fase.
+    3. Mensaje clave / Storytelling de la fase.
+    4. Formatos recomendados.
+    5. Tipos de contenido.
+    6. Duración sugerida en días.
+    7. Inversión sugerida (distribución lógica del presupuesto total de ${totalBudget} entre las fases).
+    8. Estimaciones matemáticas precisas siguiendo las reglas de cálculo proporcionadas arriba.
+
+    Responde exclusivamente en formato JSON.
+    Responde siempre en español.
+    `,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          summary: { type: Type.STRING },
+          totalInvestment: { type: Type.NUMBER },
+          estimatedTotalConversions: { type: Type.NUMBER },
+          strategicAdvice: { type: Type.STRING },
+          phases: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING },
+                objective: { type: Type.STRING },
+                message: { type: Type.STRING },
+                formats: { type: Type.ARRAY, items: { type: Type.STRING } },
+                contentTypes: { type: Type.ARRAY, items: { type: Type.STRING } },
+                durationDays: { type: Type.NUMBER },
+                investment: { type: Type.NUMBER },
+                estimates: {
+                  type: Type.OBJECT,
+                  properties: {
+                    impressions: { type: Type.NUMBER },
+                    reach: { type: Type.NUMBER },
+                    clicks: { type: Type.NUMBER },
+                    ctr: { type: Type.NUMBER },
+                    cpc: { type: Type.NUMBER },
+                    cpm: { type: Type.NUMBER },
+                    conversions: { type: Type.NUMBER },
+                    cpa: { type: Type.NUMBER }
+                  },
+                  required: ["impressions", "reach", "clicks", "ctr", "cpc", "cpm", "conversions"]
+                }
+              },
+              required: ["name", "objective", "message", "formats", "contentTypes", "durationDays", "investment", "estimates"]
+            }
+          }
+        },
+        required: ["summary", "totalInvestment", "estimatedTotalConversions", "strategicAdvice", "phases"]
+      }
+    }
+  });
+
+  const text = response.text || "{}";
+  return JSON.parse(text);
 }
 
 export async function enhancePrompt(

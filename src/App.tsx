@@ -50,7 +50,8 @@ import {
   MapPin,
   RefreshCcw,
   Search,
-  Wand2
+  Wand2,
+  Megaphone
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
@@ -70,7 +71,10 @@ import {
   Tooltip,
   BarChart,
   Bar,
-  Cell
+  Cell,
+  PieChart,
+  Pie,
+  Legend
 } from 'recharts';
 import { 
   getMetaAuthUrl, 
@@ -141,6 +145,7 @@ export default function App() {
     videoDuration: 5,
     budget: '5.00',
     currency: 'USD',
+    facebookPage: '',
     destinationUrl: '',
     pixelId: '',
     whatsappNumber: '',
@@ -181,6 +186,7 @@ export default function App() {
   const [activeAssetTool, setActiveAssetTool] = useState<'hub' | 'campaign' | 'generate_img' | 'product_img' | 'animate' | 'edit_img' | 'video_gen'>('hub');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
 
   // Firebase & History State
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
@@ -270,6 +276,7 @@ export default function App() {
 
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [publishStep, setPublishStep] = useState<'config' | 'preview'>('config');
+  const [publishMode, setPublishMode] = useState<'single' | 'bulk'>('single');
 
   // Auto-login to Meta if token exists
   useEffect(() => {
@@ -349,6 +356,12 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (results.length > 0 && !isProcessing && activeHomeTab === 'publicar') {
+      resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [results, isProcessing, activeHomeTab]);
 
   const fetchHistory = async (email: string) => {
     if (!email) return;
@@ -716,6 +729,122 @@ export default function App() {
     }
   };
 
+  const executePublishBulk = async () => {
+    if (!metaToken || !selectedAdAccount || !selectedPage) {
+      setChatNotification('Asegúrate de estar conectado a Meta y tener seleccionada una Cuenta y Página.');
+      return;
+    }
+
+    if (results.length === 0) {
+      setChatNotification('No hay anuncios generados para publicar.');
+      return;
+    }
+
+    const totalCost = 150 * results.length;
+    if (credits !== -1 && credits < totalCost) {
+      setChatNotification(`No tienes suficientes créditos para publicar los ${results.length} anuncios (Costo: ${totalCost} créditos).`);
+      setShowRecharge(true);
+      return;
+    }
+
+    setIsPublishing(true);
+    setChatNotification(`Iniciando proceso de publicación masiva (${results.length} anuncios)...`);
+
+    let successCount = 0;
+    const errors: string[] = [];
+
+    for (let i = 0; i < results.length; i++) {
+      const res = results[i];
+      const adName = res.funnelPhase?.name || `Anuncio ${i + 1}`;
+      setChatNotification(`Publicando anuncio ${successCount + 1}/${results.length}: ${adName}...`);
+
+      let finalBudget = res.funnelPhase?.budget.toString() || campaign.budget || '5.00';
+      let finalObjective = res.funnelPhase?.objective || campaign.objective || 'Reconocimiento';
+      let finalScheduleEnd = campaign.scheduleEnd;
+
+      if (campaign.scheduleStart && res.funnelPhase?.duration) {
+        try {
+          const start = new Date(campaign.scheduleStart);
+          const end = new Date(start.getTime() + res.funnelPhase.duration * 24 * 60 * 60 * 1000);
+          finalScheduleEnd = end.toISOString();
+        } catch (e) {
+          console.error("Date calculation error:", e);
+        }
+      }
+
+      try {
+        const publishResponse = await publishAd({
+          accessToken: metaToken,
+          adAccountId: selectedAdAccount,
+          pageId: selectedPage,
+          productName: campaign.productName,
+          imageUrl: res.generatedImageUrl || '',
+          headline: res.headline || campaign.productName,
+          body: `${res.captions.aida.attention}\n\n${res.captions.aida.interest}\n\n${res.captions.aida.desire}\n\n${res.captions.aida.action}`,
+          objective: finalObjective,
+          budget: finalBudget,
+          audience: campaign.audience,
+          location: campaign.location,
+          gender: campaign.gender,
+          ageRange: campaign.ageRange,
+          destinationUrl: campaign.destinationUrl || '',
+          pixelId: campaign.pixelId || '',
+          whatsappNumber: campaign.whatsappNumber || '',
+          currency: campaign.currency || 'USD',
+          facebookEnabled: campaign.facebookEnabled,
+          instagramEnabled: campaign.instagramEnabled,
+          feedEnabled: campaign.feedEnabled,
+          reelsEnabled: campaign.reelsEnabled,
+          storiesEnabled: campaign.storiesEnabled,
+          marketplaceEnabled: campaign.marketplaceEnabled,
+          instreamEnabled: campaign.instreamEnabled,
+          audienceNetworkEnabled: campaign.audienceNetworkEnabled,
+          messengerEnabled: campaign.messengerEnabled,
+          advantagePlacementsEnabled: campaign.advantagePlacementsEnabled,
+          scheduleStart: campaign.scheduleStart,
+          scheduleEnd: finalScheduleEnd
+        });
+
+        if (publishResponse.success) {
+          successCount++;
+          // Deduct credits
+          if (credits !== -1 && currentUser) {
+            try {
+              const deductRes = await fetch('/api/user/credits/deduct', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: currentUser.uid, amount: 150 })
+              });
+              const deductData = await deductRes.json();
+              if (deductRes.ok) {
+                setCredits(deductData.remaining);
+              }
+            } catch (e) {
+              console.error("Credit deduction error:", e);
+            }
+          }
+        } else {
+          errors.push(`Error en ${adName}: ${publishResponse.error}`);
+        }
+      } catch (err: any) {
+        errors.push(`Error en ${adName}: ${err.message}`);
+      }
+    }
+
+    setIsPublishing(false);
+    if (successCount === results.length) {
+      setChatNotification(`¡Éxito! Los ${results.length} anuncios han sido publicados correctamente.`);
+      alert(`¡Estrategia Desplegada!\n\nLos ${results.length} anuncios han sido creados en tu Administrador de Anuncios.`);
+      setShowPublishModal(false);
+    } else if (successCount > 0) {
+      setChatNotification(`Publicación parcial: ${successCount}/${results.length} anuncios creados.`);
+      alert(`Se publicaron ${successCount} anuncios, pero hubo errores:\n\n${errors.join('\n')}`);
+    } else {
+      setChatNotification('No se pudo publicar ningún anuncio.');
+      alert(`Error al publicar la estrategia:\n\n${errors.join('\n')}`);
+    }
+  };
+
   const [isDeducting, setIsDeducting] = useState(false);
 
   const handleRecharge = (pkg: any) => {
@@ -841,24 +970,61 @@ export default function App() {
         adAccountId: selectedAdAccount,
         level,
         filtering,
-        timeRange: { since: analysisDateRange.since, until: analysisDateRange.until }
+        timeRange: { since: analysisDateRange.since, until: analysisDateRange.until },
+        timeIncrement: 1
       });
 
       if (insights && insights.length > 0) {
-        const formattedData: CSVRow[] = insights.map((item: any) => ({
-          formato: item.adset_name || 'Personalizado',
-          concepto: item.campaign_name || 'Meta Ads',
-          texto: item.ad_name || 'Anuncio de Meta',
-          ctr: parseFloat(item.ctr || item.inline_link_click_ctr || '0'),
-          engagement: parseInt(item.inline_link_clicks || item.clicks || '0'),
-          resultados: parseInt(item.reach || item.impressions || '0'),
-          impresiones: parseInt(item.impressions || '0'),
-          alcance: parseInt(item.reach || '0'),
-          clics_enlace: parseInt(item.inline_link_clicks || item.clicks || '0'),
-          cpc: parseFloat(item.cpc || '0'),
-          cpm: parseFloat(item.cpm || '0'),
-          gasto_total: parseFloat(item.spend || '0')
-        }));
+        const formattedData: CSVRow[] = insights.map((item: any) => {
+          // Extract actions for specifically identifying results
+          const actions = item.actions || [];
+          
+          // Helper to get action value by multiple potential keys
+          const getAction = (keys: string[]) => {
+            const found = actions.find((a: any) => keys.includes(a.action_type));
+            return parseInt(found?.value || '0');
+          };
+
+          // 1. Result logic based on priority and common Meta action types
+          const leads = getAction(['lead', 'on-facebook lead', 'offsite_conversion.fb_pixel_lead']);
+          const purchases = getAction(['purchase', 'offsite_conversion.fb_pixel_purchase']);
+          const messages = getAction(['onsite_conversion.messaging_conversation_started_7d', 'messaging_conversation_started_7d']);
+          const conversions = getAction(['on_facebook_workflow_completion', 'onsite_conversion.post_save', 'offsite_conversion.fb_pixel_custom']);
+          const linkClicks = parseInt(item.inline_link_clicks || '0');
+          
+          // Determine "Results" value using descending priority
+          let resultVal = 0;
+          if (leads > 0) resultVal = leads;
+          else if (purchases > 0) resultVal = purchases;
+          else if (messages > 0) resultVal = messages;
+          else if (conversions > 0) resultVal = conversions;
+          else if (linkClicks > 0) resultVal = linkClicks;
+          else if (parseInt(item.reach || '0') > 0 && resultVal === 0) {
+             // Fallback if no specific actions but objective might be reach (but user asked for real results)
+             // resultVal remains 0 or uses reach if that's the only thing
+          }
+
+          // 2. Engagement (Interacciones) 
+          const pageEngagement = getAction(['page_engagement']);
+          const postEngagement = getAction(['post_engagement']);
+          const omniEngagement = pageEngagement || postEngagement || parseInt(item.clicks || '0');
+
+          return {
+            formato: item.adset_name || 'Personalizado',
+            concepto: item.campaign_name || 'Meta Ads',
+            texto: item.ad_name || 'Anuncio de Meta',
+            ctr: parseFloat(item.ctr || item.inline_link_click_ctr || '0'),
+            engagement: omniEngagement,
+            resultados: resultVal,
+            impresiones: parseInt(item.impressions || '0'),
+            alcance: parseInt(item.reach || '0'),
+            clics_enlace: parseInt(item.inline_link_clicks || item.clicks || '0'),
+            cpc: parseFloat(item.cpc || '0'),
+            cpm: parseFloat(item.cpm || '0'),
+            gasto_total: parseFloat(item.spend || '0'),
+            fecha: item.date_start
+          };
+        });
         return formattedData;
       }
       return [];
@@ -991,12 +1157,16 @@ export default function App() {
         }
       }
 
+      const pageObject = pages.find(p => p.id === selectedPage);
+      const pageName = pageObject ? pageObject.name : campaign.facebookPage;
+
       const plan = await generateStrategicPlan(
         campaign.productName,
         parseFloat(campaign.budget || '0'),
         campaign.audience,
         campaign.objective,
-        campaign.currency
+        campaign.currency,
+        pageName
       );
       setStrategicPlan(plan);
       setChatNotification('¡Estrategia Digital Generada! Revisa el Funnel y Cronograma.');
@@ -1011,130 +1181,278 @@ export default function App() {
   const AnalysisDashboard = ({ data, report }: { data: CSVRow[], report: AnalysisReport | null }) => {
     if (!data.length) return null;
 
-    const chartData = data.slice(0, 10).map(row => ({
-      name: row.texto.substring(0, 10) + '...',
-      ctr: row.ctr,
-      spend: row.gasto_total || 0,
-      reach: row.alcance || 0,
-      clicks: row.clics_enlace || 0,
-      impressions: row.impresiones || 0,
-    }));
+    // Process daily data for Curve chart
+    const dailyData: Record<string, any> = {};
+    data.forEach(row => {
+      const date = row.fecha || 'Sin fecha';
+      
+      if (!dailyData[date]) {
+        // We store 'day' for visual labeling but group by full 'date'
+        const dayLabel = date.split('-').pop() || date;
+        dailyData[date] = { fullDate: date, day: dayLabel, resultados: 0, impressions: 0, clicks: 0, reach: 0 };
+      }
+      dailyData[date].resultados += row.resultados || 0;
+      dailyData[date].impressions += row.impresiones || 0;
+      dailyData[date].clicks += row.clics_enlace || 0;
+      dailyData[date].reach += row.alcance || 0;
+    });
+
+    const chartData = Object.values(dailyData).sort((a, b) => a.fullDate.localeCompare(b.fullDate));
+
+    const totalImpressions = data.reduce((acc, curr) => acc + (curr.impresiones || 0), 0);
+    const totalReach = data.reduce((acc, curr) => acc + (curr.alcance || 0), 0);
+    const totalResults = data.reduce((acc, curr) => acc + (curr.resultados || 0), 0);
+    const totalClicks = data.reduce((acc, curr) => acc + (curr.clics_enlace || 0), 0);
+    const totalEngagement = data.reduce((acc, curr) => acc + (curr.engagement || 0), 0);
+    const totalSpend = data.reduce((acc, curr) => acc + (curr.gasto_total || 0), 0);
+    
+    // Average calculations
+    const avgCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
+    const avgCpc = totalClicks > 0 ? totalSpend / totalClicks : 0;
+    const avgCpm = totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : 0;
+    const avgCpa = totalResults > 0 ? totalSpend / totalResults : 0;
+
+    const barMetrics = [
+      { name: 'Impresiones', value: totalImpressions },
+      { name: 'Alcance', value: totalReach },
+      { name: 'Interacciones', value: totalEngagement },
+      { name: 'Clics', value: totalClicks },
+      { name: 'Resultados', value: totalResults }
+    ];
+
+    const pieMetric = (label: string, value: string | number, color: string, subValue?: string) => (
+      <div className="flex flex-col items-center">
+        <div className="h-32 w-32 relative">
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie
+                data={[{ value: 100 }]}
+                cx="50%"
+                cy="50%"
+                innerRadius={35}
+                outerRadius={45}
+                fill="#ffffff10"
+                paddingAngle={0}
+                dataKey="value"
+                stroke="none"
+              />
+              <Pie
+                data={[{ value: 75 }]}
+                cx="50%"
+                cy="50%"
+                innerRadius={35}
+                outerRadius={45}
+                fill={color}
+                paddingAngle={0}
+                dataKey="value"
+                stroke="none"
+                startAngle={90}
+                endAngle={-270}
+              />
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+            <span className="text-[10px] font-orbitron font-bold text-white leading-tight">{value}</span>
+            <span className="text-[7px] text-white/30 uppercase tracking-[0.2em]">{label}</span>
+            {subValue && <span className="text-[6px] text-white/20 uppercase mt-1">{subValue}</span>}
+          </div>
+        </div>
+      </div>
+    );
 
     return (
-      <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+      <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Main Chart */}
+          {/* Main Chart: Rendimiento (Results) */}
           <div className="lg:col-span-2 glass-panel p-6 bg-white/5 border-neon-blue/20">
-            <h3 className="font-orbitron text-xs font-bold text-neon-blue uppercase tracking-widest mb-6">CURVA DE RENDIMIENTO (CTR)</h3>
+            <div className="flex items-center justify-between mb-6">
+              <div className="space-y-1">
+                <h3 className="font-orbitron text-xs font-bold text-neon-blue uppercase tracking-widest">RENDIMIENTO (RESULTADOS)</h3>
+                <p className="text-[14px] font-orbitron font-black text-white">{totalResults.toLocaleString()} <span className="text-[9px] text-white/40 uppercase tracking-widest font-medium ml-1">Total Resultados</span></p>
+              </div>
+              <span className="text-[9px] text-white/40 uppercase tracking-widest">Vista por día del mes</span>
+            </div>
             <div className="h-64 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={chartData}>
                   <defs>
-                    <linearGradient id="colorCtr" x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient id="colorResults" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#00d1ff" stopOpacity={0.3}/>
                       <stop offset="95%" stopColor="#00d1ff" stopOpacity={0}/>
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" vertical={false} />
-                  <XAxis dataKey="name" stroke="#ffffff40" fontSize={10} tickLine={false} axisLine={false} />
+                  <XAxis dataKey="day" stroke="#ffffff40" fontSize={10} tickLine={false} axisLine={false} />
                   <YAxis stroke="#ffffff40" fontSize={10} tickLine={false} axisLine={false} />
                   <Tooltip 
+                    formatter={(value: any) => [Math.round(value), 'Resultados']}
                     contentStyle={{ backgroundColor: '#000000cc', borderColor: '#00d1ff66', borderRadius: '8px', fontSize: '10px' }}
                     itemStyle={{ color: '#00d1ff' }}
                   />
-                  <Area type="monotone" dataKey="ctr" stroke="#00d1ff" fillOpacity={1} fill="url(#colorCtr)" strokeWidth={2} />
+                  <Area 
+                    type="monotone" 
+                    dataKey="resultados" 
+                    stroke="#00d1ff" 
+                    fillOpacity={1} 
+                    fill="url(#colorResults)" 
+                    strokeWidth={2}
+                    dot={{ r: 3, fill: '#10b981', fillOpacity: 1, stroke: '#10b981', strokeWidth: 0 }}
+                    activeDot={{ r: 6, fill: '#10b981', stroke: '#fff', strokeWidth: 2 }}
+                  />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
           </div>
 
-          {/* Stats Grid */}
+          {/* GLOBAL KPIs: Circular Charts */}
           <div className="glass-panel p-6 bg-neon-blue/5 border-neon-blue/20">
-            <h3 className="font-orbitron text-xs font-bold text-neon-blue uppercase tracking-widest mb-6">KPIs GLOBALES</h3>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              {[
-                { label: 'Impresiones', value: data.reduce((acc, curr) => acc + (curr.impresiones || 0), 0) },
-                { label: 'Alcance', value: data.reduce((acc, curr) => acc + (curr.alcance || 0), 0) },
-                { label: 'Resultados', value: data.reduce((acc, curr) => acc + curr.resultados, 0) },
-                { label: 'Clics en enlace', value: data.reduce((acc, curr) => acc + (curr.clics_enlace || 0), 0) },
-                { label: 'Interacciones', value: data.reduce((acc, curr) => acc + (curr.engagement || 0), 0) },
-                { label: 'CTR Medio', value: (data.reduce((acc, curr) => acc + curr.ctr, 0) / data.length).toFixed(1) + '%' },
-                { label: 'CPC Medio', value: '$' + (data.reduce((acc, curr) => acc + (curr.cpc || 0), 0) / data.length).toFixed(2) },
-                { label: 'CPM Medio', value: '$' + (data.reduce((acc, curr) => acc + (curr.cpm || 0), 0) / data.length).toFixed(2) },
-                { label: 'Gasto Total', value: '$' + data.reduce((acc, curr) => acc + (curr.gasto_total || 0), 0).toFixed(2) },
-              ].map((stat, idx) => (
-                <div key={idx} className="border-l-2 border-neon-blue/30 pl-3">
-                  <p className="text-[9px] text-white/40 uppercase tracking-widest mb-1">{stat.label}</p>
-                  <p className="font-orbitron text-sm font-bold text-white">{stat.value}</p>
+            <h3 className="font-orbitron text-xs font-bold text-neon-blue uppercase tracking-widest mb-6">KPIs GLOBALES (RATIOS)</h3>
+            <div className="grid grid-cols-1 gap-2">
+              <div className="flex justify-around items-center h-full flex-wrap gap-4">
+                {pieMetric('CTR', avgCtr.toFixed(1) + '%', '#00d1ff')}
+                {pieMetric('CPA', '$' + Math.round(avgCpa), '#ff4d4d')}
+                {pieMetric('CPC', '$' + Math.round(avgCpc), '#10b981')}
+                {pieMetric('CPM', '$' + Math.round(avgCpm), '#8b5cf6')}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* KPIs GLOBALES: Horizontal Bar Chart & Values */}
+        <div className="glass-panel p-8 bg-white/5 border-white/10">
+          <h3 className="font-orbitron text-xs font-bold text-white uppercase tracking-widest mb-8">KPIS GLOBALES DE VOLUMEN</h3>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={barMetrics} layout="vertical" margin={{ left: 40, right: 40 }}>
+                  <XAxis type="number" hide />
+                  <YAxis 
+                    dataKey="name" 
+                    type="category" 
+                    stroke="#ffffff40" 
+                    fontSize={9} 
+                    tickLine={false} 
+                    axisLine={false} 
+                    width={80}
+                  />
+                  <Tooltip 
+                    cursor={{ fill: 'transparent' }}
+                    contentStyle={{ backgroundColor: '#000000cc', borderColor: '#00d1ff22', borderRadius: '8px', fontSize: '10px' }}
+                  />
+                  <Bar dataKey="value" fill="#00d1ff" radius={[0, 4, 4, 0]} barSize={15}>
+                    {barMetrics.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={index % 2 === 0 ? '#00d1ff' : '#009dbf'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-6">
+              {barMetrics.map((stat, idx) => (
+                <div key={idx} className="bg-white/5 p-4 rounded-lg border border-white/5">
+                  <p className="text-[9px] text-white/40 uppercase tracking-[0.2em] mb-1">{stat.name}</p>
+                  <p className="font-orbitron text-xl font-bold text-white">{stat.value.toLocaleString()}</p>
                 </div>
               ))}
+              <div className="col-span-2 bg-neon-blue/10 p-5 rounded-lg border border-neon-blue/20 flex justify-between items-center">
+                <div>
+                  <p className="text-[9px] text-neon-blue uppercase tracking-[0.3em] mb-1 font-bold">Inversión Real (Gasto Total)</p>
+                  <p className="font-orbitron text-2xl font-black text-white">${Math.round(totalSpend).toLocaleString()}</p>
+                </div>
+                <div className="h-10 w-10 rounded-full bg-neon-blue/20 flex items-center justify-center">
+                  <DollarSign className="text-neon-blue" size={20} />
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
         {report && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="glass-panel p-6 bg-white/5 border-white/10">
-              <div className="flex items-center gap-2 mb-4">
-                <BrainCircuit className="text-neon-blue" size={18} />
-                <h3 className="font-orbitron text-xs font-bold uppercase tracking-widest text-white">INSIGHTS ESTRATÉGICOS</h3>
+          <div className="grid grid-cols-1 lg:grid-cols-1 gap-8">
+            <div className="glass-panel p-8 bg-white/5 border-white/10">
+              <div className="flex items-center gap-3 mb-6">
+                <BrainCircuit className="text-neon-blue" size={24} />
+                <h3 className="font-orbitron text-sm font-bold uppercase tracking-widest text-white">REPORTE DE INTELIGENCIA ESTRATÉGICA</h3>
               </div>
-              <p className="text-xs text-white/70 italic mb-4">"{report.summary}"</p>
-              <div className="space-y-4">
-                <div>
-                  <h4 className="text-[10px] font-orbitron text-neon-blue uppercase mb-2">Conclusiones</h4>
-                  <ul className="space-y-2">
+              
+              <div className="p-6 bg-neon-blue/5 rounded-xl border border-neon-blue/10 mb-8 italic text-white/80 text-sm leading-relaxed">
+                "{report.summary}"
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                <div className="space-y-6">
+                  <div className="flex items-center gap-2 text-neon-blue border-b border-neon-blue/10 pb-2">
+                    <CheckCircle2 size={16} />
+                    <h4 className="text-[10px] font-orbitron uppercase font-bold tracking-widest">Conclusiones Clave</h4>
+                  </div>
+                  <ul className="space-y-3">
                     {report.conclusions.map((c, i) => (
-                      <li key={i} className="text-[10px] text-white/60 flex gap-2">
-                        <span className="text-neon-blue">›</span> {c}
+                      <li key={i} className="text-xs text-white/60 flex gap-3 leading-relaxed">
+                        <span className="text-neon-blue font-bold font-mono">0{i+1}.</span> {c}
                       </li>
                     ))}
                   </ul>
                 </div>
-                <div>
-                  <h4 className="text-[10px] font-orbitron text-green-400 uppercase mb-2">Recomendaciones</h4>
-                  <ul className="space-y-2">
+
+                <div className="space-y-6">
+                  <div className="flex items-center gap-2 text-green-400 border-b border-green-400/10 pb-2">
+                    <Lightbulb size={16} />
+                    <h4 className="text-[10px] font-orbitron uppercase font-bold tracking-widest">Recomendaciones de Optimización</h4>
+                  </div>
+                  <ul className="space-y-3">
                     {report.recommendations.map((r, i) => (
-                      <li key={i} className="text-[10px] text-white/60 flex gap-2">
-                        <span className="text-green-400">✓</span> {r}
+                      <li key={i} className="text-xs text-white/60 flex gap-3 leading-relaxed">
+                        <span className="text-green-400 font-bold font-mono">✓</span> {r}
                       </li>
                     ))}
                   </ul>
                 </div>
               </div>
-            </div>
 
-            <div className="space-y-6">
-              <div className="glass-panel p-6 bg-green-500/5 border-green-500/20">
-                <h3 className="font-orbitron text-[10px] font-bold text-green-400 uppercase mb-4 flex items-center gap-2">
-                  <TrendingUp size={14} /> TOP PERFORMERS (WINNERS)
-                </h3>
-                <div className="space-y-3">
-                  {report.topPerformers.map((item, i) => (
-                    <div key={i} className="p-3 bg-black/20 rounded border border-white/5">
-                      <p className="text-[10px] font-bold text-white mb-1 uppercase tracking-wider">{item.name}</p>
-                      <p className="text-[9px] text-white/50">{item.reason}</p>
-                    </div>
-                  ))}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-10">
+                <div className="p-6 bg-green-500/5 rounded-xl border border-green-500/10">
+                  <h3 className="font-orbitron text-[10px] font-bold text-green-400 uppercase mb-4 flex items-center gap-2 tracking-[0.2em]">
+                    <TrendingUp size={14} /> TOP PERFORMERS
+                  </h3>
+                  <div className="space-y-3">
+                    {report.topPerformers.map((item, i) => (
+                      <div key={i} className="p-3 bg-black/20 rounded-lg border border-white/5">
+                        <p className="text-[10px] font-bold text-white mb-1 uppercase tracking-wider">{item.name}</p>
+                        <p className="text-[9px] text-white/50 leading-relaxed">{item.reason}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
 
-              <div className="glass-panel p-6 bg-red-500/5 border-red-500/20">
-                <h3 className="font-orbitron text-[10px] font-bold text-red-400 uppercase mb-4 flex items-center gap-2">
-                  <AlertTriangle size={14} /> LOW PERFORMERS (AVOID)
-                </h3>
-                <div className="space-y-3">
-                  {report.lowPerformers.map((item, i) => (
-                    <div key={i} className="p-3 bg-black/20 rounded border border-white/5">
-                      <p className="text-[10px] font-bold text-white mb-1 uppercase tracking-wider">{item.name}</p>
-                      <p className="text-[9px] text-white/50">{item.reason}</p>
-                    </div>
-                  ))}
+                <div className="p-6 bg-red-500/5 rounded-xl border border-red-500/10">
+                  <h3 className="font-orbitron text-[10px] font-bold text-red-400 uppercase mb-4 flex items-center gap-2 tracking-[0.2em]">
+                    <AlertTriangle size={14} /> LOW PERFORMERS
+                  </h3>
+                  <div className="space-y-3">
+                    {report.lowPerformers.map((item, i) => (
+                      <div key={i} className="p-3 bg-black/20 rounded-lg border border-white/5">
+                        <p className="text-[10px] font-bold text-white mb-1 uppercase tracking-wider">{item.name}</p>
+                        <p className="text-[9px] text-white/50 leading-relaxed">{item.reason}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         )}
+
+        <div className="flex justify-center pt-8">
+          <button 
+            onClick={() => setActiveHomeTab('planificar')}
+            className="group relative flex items-center gap-4 px-12 py-5 bg-neon-blue text-black font-orbitron font-black text-sm tracking-[0.3em] rounded-xl hover:shadow-[0_0_50px_rgba(0,209,255,0.4)] transition-all duration-500 overflow-hidden"
+          >
+            <div className="absolute inset-0 bg-white/20 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000 skew-x-12" />
+            <Target className="group-hover:rotate-12 transition-transform" />
+            CONTINUAR AL PLAN DE MEDIOS
+          </button>
+        </div>
       </div>
     );
   };
@@ -1153,7 +1471,14 @@ export default function App() {
             texto: row.Texto || row.texto || row.text || '',
             ctr: row.CTR || row.ctr || 0,
             engagement: row.Engagement || row.engagement || 0,
-            resultados: row.Resultados || row.resultados || row.conversion || 0
+            resultados: row.Resultados || row.resultados || row.conversion || 0,
+            impresiones: row.Impresiones || row.impresiones || 0,
+            alcance: row.Alcance || row.alcance || 0,
+            clics_enlace: row.Clics || row.clics || 0,
+            cpc: row.CPC || row.cpc || 0,
+            cpm: row.CPM || row.cpm || 0,
+            gasto_total: row.Gasto || row.gasto || row.spend || 0,
+            fecha: row.Fecha || row.fecha || row.date || ''
           })).filter(row => row.texto);
           setCsvData(formattedData);
         }
@@ -1314,7 +1639,7 @@ export default function App() {
         visualMimeType = visualPreview.startsWith('data:image/png') ? 'image/png' : (visualFile?.type || 'image/png');
       }
 
-      const variantsCount = userProfile.multiVariantEnabled === false ? 1 : 3;
+      const variantsCount = (strategicPlan || userProfile.multiVariantEnabled !== false) ? 3 : 1;
 
       // Use analysis report conclusions/insights as secondary learning
       const learningContext = analysisReport ? {
@@ -1338,6 +1663,11 @@ export default function App() {
       setResults(res);
       const count = res.length;
       setChatNotification('¡Listo! He generado tu propuesta publicitaria de alto impacto');
+      
+      // Scroll to results
+      setTimeout(() => {
+        resultsRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 300);
 
       // Save to History (Firestore) - Strip large visuals to avoid 1MB limit
       if (isLoggedIn && loginEmail) {
@@ -1646,7 +1976,7 @@ export default function App() {
 
             <div className="pt-6 border-t border-white/5 text-center">
               <p className="text-[10px] text-white/30 uppercase tracking-widest">
-                Nuevos usuarios reciben 60 créditos de cortesía
+                Tu asistente inteligente para Meta Ads de alto impacto
               </p>
             </div>
           </motion.div>
@@ -1956,7 +2286,7 @@ export default function App() {
                     : "bg-neon-blue/5 border-neon-blue/30 text-neon-blue/60 hover:border-neon-blue hover:text-neon-blue"
                 )}
               >
-                <Calendar size={16} />
+                <Target size={16} />
                 <span className="hidden sm:inline">PLANIFICAR</span>
                 <span className="sm:hidden">PLAN</span>
               </button>
@@ -2045,36 +2375,6 @@ export default function App() {
                           </div>
 
                           <div className="space-y-2">
-                            <label className="text-[10px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Grupo de Anuncios</label>
-                            <select 
-                              value={selectedAnalysisIds.adSetId}
-                              onChange={(e) => setSelectedAnalysisIds(prev => ({ ...prev, adSetId: e.target.value }))}
-                              className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2 text-xs text-white/80 focus:border-neon-blue outline-none font-orbitron"
-                              disabled={!selectedAnalysisIds.campaignId}
-                            >
-                              <option value="">Todos los grupos</option>
-                              {metaAnalysisData.adSets.map(aset => (
-                                <option key={aset.id} value={aset.id}>{aset.name}</option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div className="space-y-2">
-                            <label className="text-[10px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Anuncio</label>
-                            <select 
-                              value={selectedAnalysisIds.adId}
-                              onChange={(e) => setSelectedAnalysisIds(prev => ({ ...prev, adId: e.target.value }))}
-                              className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2 text-xs text-white/80 focus:border-neon-blue outline-none font-orbitron"
-                              disabled={!selectedAnalysisIds.adSetId}
-                            >
-                              <option value="">Todos los anuncios</option>
-                              {metaAnalysisData.ads.map(ad => (
-                                <option key={ad.id} value={ad.id}>{ad.name}</option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div className="space-y-2">
                             <label className="text-[10px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Desde</label>
                             <input 
                               type="date"
@@ -2101,7 +2401,7 @@ export default function App() {
                           className="w-full py-3 rounded-lg bg-neon-blue/10 border border-neon-blue/30 text-neon-blue font-orbitron text-[10px] font-black uppercase tracking-widest hover:bg-neon-blue hover:text-black transition-all flex items-center justify-center gap-2 group disabled:opacity-30"
                         >
                           {isAnalyzing ? <Cpu className="animate-spin" size={14} /> : <TrendingUp size={14} />}
-                          EJECUTAR ANÁLISIS INTELIGENTE (100 CRÉDITOS)
+                          EJECUTAR ANÁLISIS (100 CRÉDITOS)
                         </button>
                       </div>
                     ) : (
@@ -2127,7 +2427,7 @@ export default function App() {
                     <button 
                       onClick={() => {
                         if (csvData.length > 0) {
-                          setActiveHomeTab('crear');
+                          setActiveHomeTab('planificar');
                           window.scrollTo({ top: 0, behavior: 'smooth' });
                         }
                       }}
@@ -2150,9 +2450,13 @@ export default function App() {
                       <span className={cn(
                         "text-[8px] font-orbitron uppercase tracking-[0.4em] font-black transition-colors",
                         csvData.length > 0 ? "text-neon-blue" : "text-white/20"
-                      )}>Continuar a Creación</span>
+                      )}>Continuar al Plan de Medios</span>
                     </button>
                   </div>
+
+                  <AnimatePresence>
+                    {/* Processing overlay hidden per user request */}
+                  </AnimatePresence>
 
                   {csvData.length > 0 && (
                     <div className="mt-12 space-y-8">
@@ -2176,7 +2480,7 @@ export default function App() {
                 >
                   <div className="flex flex-col gap-2">
                     <h2 className="font-orbitron text-base md:text-lg font-bold flex items-center gap-2">
-                      <Calendar className="text-neon-blue" /> PLAN DE MEDIOS
+                      <Target className="text-neon-blue" /> PLAN DE MEDIOS
                     </h2>
                     <p className="text-[10px] text-white/40 uppercase tracking-widest leading-relaxed">
                       Diseña tu estrategia de medios digital profesional de forma automatizada con IA.
@@ -2186,24 +2490,32 @@ export default function App() {
                   {!strategicPlan ? (
                     <div className="glass-panel p-8 border-neon-blue/20 bg-neon-blue/5 space-y-8 text-center">
                       <div className="max-w-md mx-auto space-y-6">
-                        <div className="w-16 h-16 rounded-full bg-neon-blue/10 border border-neon-blue/30 flex items-center justify-center mx-auto">
-                          <Brain className="text-neon-blue animate-pulse" size={32} />
-                        </div>
-                        <h3 className="font-orbitron text-sm font-bold text-white uppercase tracking-wider">Configura tu Plan de Medios</h3>
-                        <p className="text-[11px] text-white/50 leading-relaxed uppercase tracking-widest">
-                          Nuestro sistema neural calculará las fases, objetivos, inversión y resultados estimados basados en tus variables.
-                        </p>
-                        
                         <div className="grid grid-cols-1 gap-4 text-left">
-                          <div className="space-y-2">
-                             <label className="text-[9px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Nombre del Producto / Servicio</label>
-                             <input 
-                               type="text" 
-                               value={campaign.productName}
-                               onChange={(e) => setCampaign(prev => ({ ...prev, productName: e.target.value }))}
-                               placeholder="Ej: Smart Watch X-1"
-                               className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-xs text-white/80 focus:border-neon-blue outline-none font-orbitron"
-                             />
+                          <div className="space-y-4">
+                            <div className="space-y-2">
+                               <label className="text-[9px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Nombre del Producto / Servicio</label>
+                               <input 
+                                 type="text" 
+                                 value={campaign.productName}
+                                 onChange={(e) => setCampaign(prev => ({ ...prev, productName: e.target.value }))}
+                                 placeholder="Ej: Smart Watch X-1"
+                                 className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-xs text-white/80 focus:border-neon-blue outline-none font-orbitron"
+                               />
+                            </div>
+
+                            <div className="space-y-2">
+                               <label className="text-[9px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Página de Facebook</label>
+                               <select 
+                                 value={selectedPage}
+                                 onChange={(e) => setSelectedPage(e.target.value)}
+                                 className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-xs text-white/80 focus:border-neon-blue outline-none font-orbitron"
+                               >
+                                 <option value="">Seleccionar página...</option>
+                                 {pages.map(p => (
+                                   <option key={p.id} value={p.id}>{p.name}</option>
+                                 ))}
+                               </select>
+                            </div>
                           </div>
                           
                           <div className="grid grid-cols-2 gap-4">
@@ -2244,8 +2556,8 @@ export default function App() {
                             </>
                           ) : (
                             <>
-                              <Bot size={16} />
-                              GENERAR PLAN ESTRATÉGICO (50 CRÉDITOS)
+                              <Target size={16} />
+                              GENERAR PLAN ESTRATÉGICO
                             </>
                           )}
                         </button>
@@ -2261,6 +2573,11 @@ export default function App() {
                         >
                           {strategicPlan.phases.map((phase, idx) => {
                             const objectiveWord = phase.objective.split(' ')[0].toUpperCase();
+                            const cleanName = phase.name.replace(/\s*\(.*?\)\s*/g, '').trim();
+                            
+                            // Map icons based on stage
+                            const PhaseIcon = idx === 0 ? Megaphone : idx === 1 ? Users : Zap;
+
                             return (
                               <motion.div
                                 key={`visual-funnel-${idx}`}
@@ -2275,9 +2592,27 @@ export default function App() {
                                 )}
                                 style={{ transformOrigin: 'top' }}
                               >
-                                <div className="flex flex-col items-center text-center px-4 relative z-10">
-                                  <span className="font-orbitron text-[10px] sm:text-[12px] font-black text-white uppercase tracking-tighter leading-none">{phase.name}</span>
-                                  <span className="font-orbitron text-[8px] sm:text-[10px] text-neon-blue font-black uppercase tracking-[0.2em] mt-2 group-hover:text-white transition-colors">{objectiveWord}</span>
+                                <div className={cn(
+                                  "flex flex-col items-center text-center px-2 relative z-10",
+                                  idx === 2 && "-translate-y-4"
+                                )}>
+                                  <PhaseIcon 
+                                    size={idx === 2 ? 18 : 24} 
+                                    className="text-white/40 mb-1 group-hover:text-neon-blue group-hover:scale-110 transition-all" 
+                                  />
+                                  <span className={cn(
+                                    "font-orbitron font-black text-white uppercase tracking-tighter leading-none block",
+                                    idx === 2 ? "text-[9px]" : "text-[10px] sm:text-[12px]"
+                                  )}>
+                                    {cleanName}
+                                  </span>
+                                  <span className={cn(
+                                    "font-orbitron font-black uppercase tracking-[0.2em] mt-1 transition-colors block",
+                                    idx === 2 ? "text-[7px]" : "text-[8px] sm:text-[10px]",
+                                    "text-neon-blue group-hover:text-white"
+                                  )}>
+                                    {objectiveWord}
+                                  </span>
                                 </div>
                                 <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent pointer-events-none" />
                               </motion.div>
@@ -2294,15 +2629,14 @@ export default function App() {
                             <h3 className="font-orbitron text-xs font-bold text-white uppercase tracking-widest">ESTRATEGIA DE MEDIOS</h3>
                           </div>
                           <button 
-                            onClick={() => {
+                            onClick={async () => {
                               setActiveHomeTab('publicar');
-                              processAds();
-                              window.scrollTo({ top: 0, behavior: 'smooth' });
+                              await processAds();
                             }}
                             className="px-6 py-3 rounded-xl bg-neon-blue text-black font-black uppercase tracking-widest text-[9px] flex items-center justify-center gap-2 hover:scale-105 active:scale-95 transition-all shadow-[0_0_20px_rgba(0,209,255,0.4)]"
                           >
                             <Zap size={14} className="fill-current" />
-                            CREAR ANUNCIOS DE LA ESTRATEGIA
+                            CREAR LOS 3 ANUNCIOS DEL EMBUDO AHORA
                           </button>
                         </div>
                         <p className="text-xs text-white/70 leading-relaxed italic">{strategicPlan.summary}</p>
@@ -2361,6 +2695,12 @@ export default function App() {
                                        <p className="font-orbitron text-xs font-bold text-white">{Math.round(phase.estimates.impressions).toLocaleString()}</p>
                                      </div>
                                      <div className="space-y-1">
+                                       <p className="text-[8px] text-white/30 uppercase tracking-widest">Alcance</p>
+                                       <p className="font-orbitron text-xs font-bold text-white">
+                                         {Math.round(phase.estimates.reach || (phase.estimates.impressions * 0.75)).toLocaleString()}
+                                       </p>
+                                     </div>
+                                     <div className="space-y-1">
                                        <p className="text-[8px] text-white/30 uppercase tracking-widest">Resultados</p>
                                        <p className="font-orbitron text-xs font-bold text-neon-blue">{Math.round(phase.estimates.conversions).toLocaleString()} Conv.</p>
                                      </div>
@@ -2399,6 +2739,7 @@ export default function App() {
                               <tr className="border-b border-white/10">
                                 <th className="py-4 px-4 text-[9px] font-orbitron text-white/40 uppercase tracking-[0.2em]">Fase</th>
                                 <th className="py-4 px-4 text-[9px] font-orbitron text-white/40 uppercase tracking-[0.2em]">Impresiones</th>
+                                <th className="py-4 px-4 text-[9px] font-orbitron text-white/40 uppercase tracking-[0.2em]">Alcance</th>
                                 <th className="py-4 px-4 text-[9px] font-orbitron text-white/40 uppercase tracking-[0.2em]">CTR</th>
                                 <th className="py-4 px-4 text-[9px] font-orbitron text-white/40 uppercase tracking-[0.2em]">Clics</th>
                                 <th className="py-4 px-4 text-[9px] font-orbitron text-white/40 uppercase tracking-[0.2em]">CPC</th>
@@ -2412,6 +2753,9 @@ export default function App() {
                                 <tr key={i} className="border-b border-white/5 hover:bg-white/5 transition-colors">
                                   <td className="py-4 px-4 font-orbitron text-[10px] text-neon-blue">{phase.name}</td>
                                   <td className="py-4 px-4 text-[10px] text-white">{Math.round(phase.estimates.impressions).toLocaleString()}</td>
+                                  <td className="py-4 px-4 text-[10px] text-white/60">
+                                    {Math.round(phase.estimates.reach || (phase.estimates.impressions * 0.75)).toLocaleString()}
+                                  </td>
                                   <td className="py-4 px-4 text-[10px] text-white">{phase.estimates.ctr.toFixed(1)}%</td>
                                   <td className="py-4 px-4 text-[10px] text-white">{Math.round(phase.estimates.clicks).toLocaleString()}</td>
                                   <td className="py-4 px-4 text-[10px] text-white">${Math.round(phase.estimates.cpc).toLocaleString()}</td>
@@ -2423,6 +2767,9 @@ export default function App() {
                               <tr className="bg-neon-blue/10">
                                 <td className="py-4 px-4 font-orbitron text-[10px] text-white font-black">TOTAL ESTIMADO</td>
                                 <td className="py-4 px-4 text-[10px] text-white">{Math.round(strategicPlan.phases.reduce((acc, p) => acc + p.estimates.impressions, 0)).toLocaleString()}</td>
+                                <td className="py-4 px-4 text-[10px] text-white/60">
+                                  {Math.round(strategicPlan.phases.reduce((acc, p) => acc + (p.estimates.reach || (p.estimates.impressions * 0.75)), 0)).toLocaleString()}
+                                </td>
                                 <td className="py-4 px-4 text-[10px] text-white">-</td>
                                 <td className="py-4 px-4 text-[10px] text-white">{Math.round(strategicPlan.phases.reduce((acc, p) => acc + p.estimates.clicks, 0)).toLocaleString()}</td>
                                 <td className="py-4 px-4 text-[10px] text-white">-</td>
@@ -2527,10 +2874,9 @@ export default function App() {
 
                       {/* Action Button */}
                       <button 
-                        onClick={() => {
+                        onClick={async () => {
                           setActiveHomeTab('publicar');
-                          processAds();
-                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                          await processAds();
                         }}
                         className="w-full py-6 rounded-2xl bg-neon-blue text-black font-black uppercase text-xs tracking-[0.3em] shadow-[0_0_40px_rgba(0,209,255,0.4)] hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-4 group"
                       >
@@ -2886,377 +3232,8 @@ export default function App() {
                     </button>
                   </div>
                 </motion.div>
-
-            {/* Results Section */}
-            <AnimatePresence>
-              {results.length > 0 && (
-                <motion.div 
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="mt-20 space-y-8 pb-20 border-t border-white/10 pt-20"
-                >
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-6 border-b border-white/10 pb-6">
-                      <div className="flex flex-col gap-2">
-                         <h2 className="font-orbitron text-lg md:text-xl font-bold flex items-center gap-2">
-                          <Zap className="text-neon-blue" /> ANUNCIOS GENERADOS
-                        </h2>
-                        <div className="flex flex-wrap items-center gap-2">
-                          {results.map((res, idx) => (
-                            <button
-                              key={idx}
-                              onClick={() => setSelectedResultIndex(idx)}
-                              className={cn(
-                                "px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all flex items-center gap-2",
-                                selectedResultIndex === idx 
-                                  ? "bg-neon-blue text-black shadow-[0_0_15px_rgba(0,209,255,0.4)]" 
-                                  : "bg-white/5 text-white/40 hover:bg-white/10 hover:text-white"
-                              )}
-                            >
-                              OPCIÓN {idx + 1}
-                              {res.funnelPhase && <span className="opacity-60 text-[8px]">({res.funnelPhase.name})</span>}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                    <div className="flex items-center gap-6">
-                      <div className="flex flex-col items-end">
-                        <span className="text-[8px] md:text-[10px] uppercase tracking-widest text-white/40">Performance Score</span>
-                        <div className="flex items-center gap-3">
-                          <span className="text-2xl md:text-3xl font-orbitron font-black text-neon-green">
-                            {results[selectedResultIndex].performanceScore}
-                          </span>
-                          <div className="w-20 md:w-24 h-1.5 md:h-2 bg-white/10 rounded-full overflow-hidden">
-                            <motion.div 
-                              initial={{ width: 0 }}
-                              animate={{ width: `${results[selectedResultIndex].performanceScore * 10}%` }}
-                              className="h-full bg-neon-green shadow-[0_0_10px_#39FF14]"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <button 
-                        onClick={() => metaToken ? setShowPublishModal(true) : setShowSettings(true)}
-                        disabled={isPublishing}
-                        className="flex items-center gap-2 bg-[#1877F2] hover:bg-[#166fe5] text-white text-[10px] font-bold px-4 py-3 rounded-lg transition-all shadow-[0_0_15px_rgba(24,119,242,0.3)] disabled:opacity-50"
-                      >
-                        {isPublishing ? (
-                          <Cpu className="animate-spin" size={14} />
-                        ) : (
-                          <Zap size={14} />
-                        )}
-                        {metaToken ? `CREAR OPCIÓN ${selectedResultIndex + 1}` : "CONFIGURAR META"}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div key={selectedResultIndex} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* Visual Result */}
-                    <div className="lg:col-span-1 space-y-4">
-                      <div className={cn(
-                        "relative group transition-all duration-500 rounded-2xl overflow-hidden bg-transparent",
-                        campaign.aspectRatio === '1:1' ? "aspect-square" : 
-                        campaign.aspectRatio === '9:16' ? "aspect-[9/16]" : 
-                        "aspect-video"
-                      )}>
-                        {results[selectedResultIndex].generatedImageUrl ? (
-                          <>
-                            {results[selectedResultIndex].generatedImageUrl?.startsWith('data:video') ? (
-                              <video 
-                                src={results[selectedResultIndex].generatedImageUrl} 
-                                className="w-full h-full object-cover" 
-                                autoPlay 
-                                loop 
-                                muted 
-                                playsInline
-                              />
-                            ) : (
-                              <img src={results[selectedResultIndex].generatedImageUrl} className="w-full h-full object-cover" />
-                            )}
-                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                              <button 
-                                onClick={downloadVisual}
-                                className="bg-neon-blue hover:bg-neon-blue/80 text-black font-black text-xs uppercase tracking-widest px-6 py-3 rounded-xl flex items-center gap-2 shadow-[0_0_20px_rgba(0,209,255,0.4)] transition-all"
-                              >
-                                <Download size={18} /> DESCARGAR
-                              </button>
-                            </div>
-                          </>
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center bg-black/40">
-                            <ImageIcon className="text-white/20" size={48} />
-                          </div>
-                        )}
-                        <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 text-[10px] font-bold tracking-widest uppercase text-neon-blue">
-                          AI Neural Variant {selectedResultIndex + 1}
-                        </div>
-                      </div>
-
-                      <div className="glass-panel p-4 space-y-4 border-neon-blue/20">
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-xs font-bold text-neon-blue flex items-center gap-2 uppercase tracking-wider">
-                            <Lightbulb size={14} /> Estrategia Creativa
-                          </h4>
-                          <button 
-                            onClick={() => copyToClipboard(results[selectedResultIndex].analysis, 'strategy')}
-                            className={cn(
-                              "p-2 rounded-lg transition-all",
-                              copiedType === 'strategy' ? "bg-neon-green text-black" : "bg-white/5 hover:bg-white/10 text-white/60"
-                            )}
-                          >
-                            {copiedType === 'strategy' ? <Check size={14} /> : <Copy size={14} />}
-                          </button>
-                        </div>
-                        <div className="space-y-3">
-                          {results[selectedResultIndex].headline && (
-                            <div className="text-xs">
-                              <span className="font-black text-neon-blue uppercase tracking-widest">Copy: </span>
-                              <span className="text-white/90 font-medium">{results[selectedResultIndex].headline}</span>
-                            </div>
-                          )}
-                          {results[selectedResultIndex].concept && (
-                            <div className="text-xs">
-                              <span className="font-black text-neon-blue uppercase tracking-widest">Concepto: </span>
-                              <span className="text-white/90 font-medium">{results[selectedResultIndex].concept}</span>
-                            </div>
-                          )}
-                          <p className="text-[11px] text-white/70 leading-relaxed italic border-l-2 border-neon-blue/30 pl-3">
-                            {results[selectedResultIndex].analysis}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Captions Result */}
-                    <div className="lg:col-span-2 space-y-6">
-                      {[
-                        { id: 'aida', title: 'Caption', content: results[selectedResultIndex].captions.aida, icon: <Layers size={16} /> },
-                        { id: 'storytelling', title: 'Storytelling', content: results[selectedResultIndex].captions.storytelling, icon: <FileText size={16} /> },
-                        { id: 'urgency', title: 'Call to Action', content: results[selectedResultIndex].captions.urgency, icon: <Zap size={16} /> }
-                      ].map((cap) => (
-                        <div key={cap.id} className="glass-panel p-6 space-y-4 relative group hover:border-neon-blue/40 transition-all">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-lg bg-neon-blue/10 flex items-center justify-center text-neon-blue">
-                                {cap.icon}
-                              </div>
-                              <h3 className="font-orbitron text-sm font-bold tracking-wider uppercase">{cap.title}</h3>
-                            </div>
-                            <button 
-                              onClick={() => {
-                                if (cap.id === 'aida') {
-                                  const a = cap.content as any;
-                                  const text = `${a.attention}\n\n${a.interest}\n\n${a.desire}\n\n${a.action}`;
-                                  copyToClipboard(text, cap.id);
-                                } else {
-                                  copyToClipboard(cap.content as string, cap.id);
-                                }
-                              }}
-                              className={cn(
-                                "p-2 rounded-lg transition-all",
-                                copiedType === cap.id ? "bg-neon-green text-black" : "bg-white/5 hover:bg-white/10 text-white/60"
-                              )}
-                            >
-                              {copiedType === cap.id ? <Check size={16} /> : <Copy size={16} />}
-                            </button>
-                          </div>
-                          
-                          {cap.id === 'aida' ? (
-                            <div className="space-y-4">
-                              {[
-                                { label: 'Atracción', text: (cap.content as any).attention },
-                                { label: 'Interés', text: (cap.content as any).interest },
-                                { label: 'Deseo', text: (cap.content as any).desire },
-                                { label: 'Acción', text: (cap.content as any).action }
-                              ].map((part, i) => (
-                                <div key={i} className="space-y-1.5">
-                                  <div className="px-2 py-0.5 rounded bg-neon-blue/20 self-start inline-block text-[9px] font-black text-neon-blue uppercase tracking-wider">
-                                    {part.label}
-                                  </div>
-                                  <p className="text-sm text-white/80 leading-relaxed font-medium pl-1">
-                                    {part.text}
-                                  </p>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="space-y-4">
-                              <p className="text-sm text-white/80 leading-relaxed">
-                                "{cap.content}"
-                              </p>
-                              {cap.id === 'storytelling' && (
-                                <div className="flex items-center flex-wrap gap-2">
-                                  {isVideoProcessing === `story-${selectedResultIndex}` ? (
-                                    <div className="text-[9px] px-3 py-1.5 rounded bg-neon-blue/10 border border-neon-blue/30 text-neon-blue font-bold flex items-center gap-2">
-                                      <Cpu size={12} className="animate-spin" />
-                                      PROCESANDO
-                                    </div>
-                                  ) : activeDurationSelector === `story-${selectedResultIndex}` ? (
-                                    <>
-                                      <button
-                                        onClick={() => handleStorytellingVideo(cap.content, selectedResultIndex, 5)}
-                                        className="text-[9px] px-3 py-1.5 rounded bg-neon-blue text-black font-black uppercase tracking-wider hover:scale-105 transition-all"
-                                      >
-                                        5 SEGUNDOS
-                                      </button>
-                                      <button
-                                        onClick={() => handleStorytellingVideo(cap.content, selectedResultIndex, 10)}
-                                        className="text-[9px] px-3 py-1.5 rounded bg-neon-blue text-black font-black uppercase tracking-wider hover:scale-105 transition-all"
-                                      >
-                                        10 SEGUNDOS
-                                      </button>
-                                      <button
-                                        onClick={() => setActiveDurationSelector(null)}
-                                        className="p-1.5 rounded bg-white/5 text-white/40 hover:text-white transition-all"
-                                      >
-                                        <X size={12} />
-                                      </button>
-                                    </>
-                                  ) : (
-                                    <button
-                                      onClick={() => setActiveDurationSelector(`story-${selectedResultIndex}`)}
-                                      className="text-[9px] px-3 py-1.5 rounded bg-neon-blue/10 border border-neon-blue/30 text-neon-blue font-bold uppercase tracking-wider hover:bg-neon-blue hover:text-black transition-all flex items-center gap-2 group"
-                                    >
-                                      <Video size={12} className="group-hover:scale-110 transition-transform" />
-                                      CREAR VIDEO
-                                    </button>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                          <div className="absolute bottom-0 left-0 w-0 h-0.5 bg-neon-blue group-hover:w-full transition-all duration-500" />
-                        </div>
-                      ))}
-                      
-                      <button
-                        onClick={() => {
-                          if (metaToken) {
-                            setActiveHomeTab('publicar');
-                            window.scrollTo({ top: 0, behavior: 'smooth' });
-                          } else {
-                            setShowSettings(true);
-                          }
-                        }}
-                        disabled={isPublishing}
-                        className="w-full py-4 rounded-xl bg-neon-blue text-black font-black text-sm uppercase tracking-[0.25em] flex items-center justify-center gap-3 hover:bg-neon-blue/80 transition-all shadow-[0_0_25px_rgba(0,209,255,0.4)] disabled:opacity-50"
-                      >
-                        {isPublishing ? (
-                          <Cpu className="animate-spin" size={20} />
-                        ) : (
-                          <Zap size={20} />
-                        )}
-                        {metaToken ? "PUBLICAR EN META ADS" : "CONFIGURAR CUENTA DE META"}
-                      </button>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {results.length === 0 && !isProcessing && (
-              <div className="flex flex-col items-center justify-center py-20 text-center space-y-6 opacity-60">
-                <div className="relative w-40 h-40 flex items-center justify-center">
-                  {/* Neural Network background animation */}
-                  <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100">
-                    {/* Interconnected Nodes */}
-                    {[...Array(8)].map((_, i) => {
-                      const angle = (i * 2 * Math.PI) / 8;
-                      const x = 50 + 32 * Math.cos(angle);
-                      const y = 50 + 32 * Math.sin(angle);
-                      return (
-                        <React.Fragment key={i}>
-                          <motion.circle
-                            cx={x}
-                            cy={y}
-                            r="1.5"
-                            fill="#00D1FF"
-                            initial={{ opacity: 0.3 }}
-                            animate={{ opacity: [0.3, 1, 0.3], scale: [0.8, 1.3, 0.8] }}
-                            transition={{ duration: 3, repeat: Infinity, delay: i * 0.4 }}
-                          />
-                          <motion.path
-                            d={`M 50 50 L ${x} ${y}`}
-                            stroke="#00D1FF"
-                            strokeWidth="0.5"
-                            strokeDasharray="1 3"
-                            initial={{ pathLength: 0, opacity: 0 }}
-                            animate={{ pathLength: 1, opacity: [0, 0.4, 0] }}
-                            transition={{ duration: 4, repeat: Infinity, delay: i * 0.3 }}
-                          />
-                        </React.Fragment>
-                      );
-                    })}
-                    {/* Inner pulsing ring */}
-                    <motion.circle
-                      cx="50"
-                      cy="50"
-                      r="18"
-                      stroke="#00D1FF"
-                      strokeWidth="0.5"
-                      fill="none"
-                      initial={{ scale: 0.8, opacity: 0 }}
-                      animate={{ scale: 1.2, opacity: [0, 0.2, 0] }}
-                      transition={{ duration: 2, repeat: Infinity }}
-                    />
-                  </svg>
-                  
-                  <motion.div
-                    animate={{ 
-                      boxShadow: ["0 0 15px rgba(0,209,255,0.2)", "0 0 40px rgba(0,209,255,0.5)", "0 0 15px rgba(0,209,255,0.2)"],
-                      scale: [1, 1.05, 1]
-                    }}
-                    transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-                    className="w-24 h-24 rounded-full border border-neon-blue/40 flex items-center justify-center bg-neon-blue/5 z-10 backdrop-blur-sm"
-                  >
-                    <Brain size={48} className="text-neon-blue" />
-                  </motion.div>
-                </div>
-                <div className="space-y-4">
-                  <h2 className="font-orbitron text-xl font-bold uppercase tracking-[0.2em] text-white">Creative Neural Engine V2.0</h2>
-                  <p className="text-sm max-w-md mx-auto">
-                    Configura tu campaña y sube los datos históricos para que el motor neuronal genere tu próxima pieza ganadora.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 text-xs font-bold text-neon-blue uppercase tracking-widest">
-                  ANALIZAR <ChevronRight size={14} /> CREAR <ChevronRight size={14} /> PUBLICAR
-                </div>
-              </div>
-            )}
-
-            <div className="flex justify-center py-12 mt-12 mb-10 border-t border-white/5">
-              <button 
-                onClick={() => {
-                  if (results.length > 0) {
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                    setActiveHomeTab('publicar');
-                  }
-                }}
-                className={cn(
-                  "group flex flex-col items-center gap-3 transition-all",
-                  results.length === 0 ? "opacity-30 grayscale cursor-not-allowed" : "cursor-pointer"
-                )}
-              >
-                <div className={cn(
-                  "w-12 h-12 rounded-full border flex items-center justify-center transition-all shadow-[0_0_10px_rgba(255,255,255,0.02)]",
-                  results.length > 0 
-                    ? "bg-neon-blue/10 border-neon-blue/50 group-hover:border-neon-blue/80 shadow-[0_0_15px_rgba(0,209,255,0.2)]" 
-                    : "bg-white/5 border-white/10"
-                )}>
-                  <ChevronDown className={cn(
-                    "transition-colors",
-                    results.length > 0 ? "text-neon-blue" : "text-white/40"
-                  )} size={20} />
-                </div>
-                <span className={cn(
-                  "text-[8px] font-orbitron uppercase tracking-[0.4em] font-black transition-colors",
-                  results.length > 0 ? "text-neon-blue" : "text-white/20"
-                )}>Continuar y Publicar</span>
-              </button>
-            </div>
-          </React.Fragment>
-              ) : (
+              </React.Fragment>
+            ) : (
                 <motion.div 
                   key="publicar"
                   initial={{ opacity: 0, scale: 0.98 }}
@@ -3323,21 +3300,28 @@ export default function App() {
                           </select>
                         </div>
 
-                        <div className="space-y-1.5">
-                          <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Objetivo de la Campaña</label>
-                          <select 
-                            value={campaign.objective}
-                            onChange={(e) => setCampaign({...campaign, objective: e.target.value})}
-                            className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-[10px] text-white focus:border-neon-blue/50 outline-none"
-                          >
-                            <option>Reconocimiento</option>
-                            <option>Tráfico</option>
-                            <option>Interacción</option>
-                            <option>Clientes Potenciales</option>
-                            <option>Ventas</option>
-                            <option>WhatsApp</option>
-                          </select>
-                        </div>
+                        {!(results.length === 3 && results.some(r => r.funnelPhase)) ? (
+                          <div className="space-y-1.5">
+                            <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Objetivo de la Campaña</label>
+                            <select 
+                              value={campaign.objective}
+                              onChange={(e) => setCampaign({...campaign, objective: e.target.value})}
+                              className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-[10px] text-white focus:border-neon-blue/50 outline-none"
+                            >
+                              <option>Reconocimiento</option>
+                              <option>Tráfico</option>
+                              <option>Interacción</option>
+                              <option>Clientes Potenciales</option>
+                              <option>Ventas</option>
+                              <option>WhatsApp</option>
+                            </select>
+                          </div>
+                        ) : (
+                          <div className="space-y-1.5 bg-neon-blue/5 p-3 rounded-lg border border-neon-blue/20">
+                            <label className="text-[9px] text-neon-blue uppercase tracking-widest font-bold">Optimización de Funnel Activa</label>
+                            <p className="text-[10px] text-white/60">Los objetivos se configuran individualmente por cada fase (Awareness, Interest, Conversion).</p>
+                          </div>
+                        )}
 
                         <div className="space-y-1.5">
                           <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">URL de Destino</label>
@@ -3515,13 +3499,18 @@ export default function App() {
                       <p className="text-[10px] text-white/40 uppercase tracking-[0.2em]">Todos los parámetros han sido validados por el núcleo</p>
                     </div>
                     
-                    <button 
-                      onClick={() => metaToken ? setShowPublishModal(true) : setShowSettings(true)}
-                      className="px-12 py-4 rounded-xl bg-neon-blue text-black font-black text-sm uppercase tracking-[0.3em] hover:shadow-[0_0_30px_rgba(0,209,255,0.5)] transition-all flex items-center gap-4 group"
-                    >
-                      <Zap className="group-hover:scale-125 transition-transform" />
-                      PUBLICAR EN META ADS
-                    </button>
+                    <div className="flex flex-col sm:flex-row gap-4 w-full justify-center">
+                      <button 
+                        onClick={() => {
+                          setPublishMode(results.length > 1 ? 'bulk' : 'single');
+                          metaToken ? setShowPublishModal(true) : setShowSettings(true);
+                        }}
+                        className="px-12 py-4 rounded-xl bg-neon-blue text-black font-black text-sm uppercase tracking-[0.3em] hover:shadow-[0_0_30px_rgba(0,209,255,0.5)] transition-all flex items-center justify-center gap-4 group"
+                      >
+                        <Zap className="group-hover:scale-125 transition-transform" />
+                        {results.length > 1 ? `PUBLICAR LOS ${results.length} ANUNCIOS EN META` : "PUBLICAR EN META ADS"}
+                      </button>
+                    </div>
 
                     <div className="flex items-center gap-6 pt-2">
                        <div className="flex items-center gap-2">
@@ -3535,6 +3524,346 @@ export default function App() {
                     </div>
                   </div>
                 </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Results Section Shared */}
+            <AnimatePresence>
+              {results.length > 0 ? (
+                <motion.div 
+                  ref={resultsRef}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mt-20 space-y-8 pb-20 border-t border-white/10 pt-20"
+                >
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-6 border-b border-white/10 pb-6">
+                      <div className="flex flex-col gap-2">
+                         <h2 className="font-orbitron text-lg md:text-xl font-bold flex items-center gap-2">
+                          <Zap className="text-neon-blue" /> ANUNCIOS GENERADOS
+                        </h2>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {results.map((res, idx) => (
+                            <button
+                              key={idx}
+                              onClick={() => setSelectedResultIndex(idx)}
+                              className={cn(
+                                "px-3 py-1.5 rounded-full text-[10px] font-bold tracking-widest transition-all flex items-center gap-2",
+                                selectedResultIndex === idx 
+                                  ? "bg-neon-blue text-black shadow-[0_0_15px_rgba(0,209,255,0.4)]" 
+                                  : "bg-white/5 text-white/40 hover:bg-white/10 hover:text-white"
+                              )}
+                            >
+                              {res.funnelPhase ? res.funnelPhase.name.toUpperCase() : `OPCIÓN ${idx + 1}`}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                    <div className="flex items-center gap-6">
+                      <div className="flex flex-col items-end">
+                        <span className="text-[8px] md:text-[10px] uppercase tracking-widest text-white/40">Performance Score</span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-2xl md:text-3xl font-orbitron font-black text-neon-green">
+                            {results[selectedResultIndex].performanceScore}
+                          </span>
+                          <div className="w-20 md:w-24 h-1.5 md:h-2 bg-white/10 rounded-full overflow-hidden">
+                            <motion.div 
+                              initial={{ width: 0 }}
+                              animate={{ width: `${results[selectedResultIndex].performanceScore * 10}%` }}
+                              className="h-full bg-neon-green shadow-[0_0_10px_#39FF14]"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <button 
+                        onClick={() => metaToken ? setShowPublishModal(true) : setShowSettings(true)}
+                        disabled={isPublishing}
+                        className="flex items-center gap-2 bg-[#1877F2] hover:bg-[#166fe5] text-white text-[10px] font-bold px-4 py-3 rounded-lg transition-all shadow-[0_0_15px_rgba(24,119,242,0.3)] disabled:opacity-50"
+                      >
+                        {isPublishing ? (
+                          <Cpu className="animate-spin" size={14} />
+                        ) : (
+                          <Zap size={14} />
+                        )}
+                        {metaToken ? `CREAR ${results[selectedResultIndex]?.funnelPhase?.name || `OPCIÓN ${selectedResultIndex + 1}`}`.toUpperCase() : "CONFIGURAR META"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div key={selectedResultIndex} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Visual Result */}
+                    <div className="lg:col-span-1 space-y-4">
+                      <div className={cn(
+                        "relative group transition-all duration-500 rounded-2xl overflow-hidden bg-transparent",
+                        campaign.aspectRatio === '1:1' ? "aspect-square" : 
+                        campaign.aspectRatio === '9:16' ? "aspect-[9/16]" : 
+                        "aspect-video"
+                      )}>
+                        {results[selectedResultIndex].generatedImageUrl ? (
+                          <>
+                            {results[selectedResultIndex].generatedImageUrl?.startsWith('data:video') ? (
+                              <video 
+                                src={results[selectedResultIndex].generatedImageUrl} 
+                                className="w-full h-full object-cover" 
+                                autoPlay 
+                                loop 
+                                muted 
+                                playsInline
+                              />
+                            ) : (
+                              <img src={results[selectedResultIndex].generatedImageUrl} className="w-full h-full object-cover" />
+                            )}
+                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <button 
+                                onClick={downloadVisual}
+                                className="bg-neon-blue hover:bg-neon-blue/80 text-black font-black text-xs uppercase tracking-widest px-6 py-3 rounded-xl flex items-center gap-2 shadow-[0_0_20px_rgba(0,209,255,0.4)] transition-all"
+                              >
+                                <Download size={18} /> DESCARGAR
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center bg-black/40">
+                            <ImageIcon className="text-white/20" size={48} />
+                          </div>
+                        )}
+                        <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 text-[10px] font-bold tracking-widest uppercase text-neon-blue">
+                          {results[selectedResultIndex]?.funnelPhase 
+                            ? `FASE: ${results[selectedResultIndex].funnelPhase.name}` 
+                            : `AI Neural Variant ${selectedResultIndex + 1}`}
+                        </div>
+                      </div>
+
+                      <div className="glass-panel p-4 space-y-4 border-neon-blue/20">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-bold text-neon-blue flex items-center gap-2 uppercase tracking-wider">
+                            <Lightbulb size={14} /> Estrategia Creativa
+                          </h4>
+                          <button 
+                            onClick={() => copyToClipboard(results[selectedResultIndex].analysis, 'strategy')}
+                            className={cn(
+                              "p-2 rounded-lg transition-all",
+                              copiedType === 'strategy' ? "bg-neon-green text-black" : "bg-white/5 hover:bg-white/10 text-white/60"
+                            )}
+                          >
+                            {copiedType === 'strategy' ? <Check size={14} /> : <Copy size={14} />}
+                          </button>
+                        </div>
+                        <div className="space-y-3">
+                          {results[selectedResultIndex].headline && (
+                            <div className="text-xs">
+                              <span className="font-black text-neon-blue uppercase tracking-widest">Copy: </span>
+                              <span className="text-white/90 font-medium">{results[selectedResultIndex].headline}</span>
+                            </div>
+                          )}
+                          {results[selectedResultIndex].concept && (
+                            <div className="text-xs">
+                              <span className="font-black text-neon-blue uppercase tracking-widest">Concepto: </span>
+                              <span className="text-white/90 font-medium">{results[selectedResultIndex].concept}</span>
+                            </div>
+                          )}
+                          <p className="text-[11px] text-white/70 leading-relaxed italic border-l-2 border-neon-blue/30 pl-3">
+                            {results[selectedResultIndex].analysis}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Captions Result */}
+                    <div className="lg:col-span-2 space-y-6">
+                      {[
+                        { id: 'aida', title: 'Caption', content: results[selectedResultIndex].captions.aida, icon: <Layers size={16} /> },
+                        { id: 'storytelling', title: 'Storytelling', content: results[selectedResultIndex].captions.storytelling, icon: <FileText size={16} /> },
+                        { id: 'urgency', title: 'Call to Action', content: results[selectedResultIndex].captions.urgency, icon: <Zap size={16} /> }
+                      ].map((cap) => (
+                        <div key={cap.id} className="glass-panel p-6 space-y-4 relative group hover:border-neon-blue/40 transition-all">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-lg bg-neon-blue/10 flex items-center justify-center text-neon-blue">
+                                {cap.icon}
+                              </div>
+                              <h3 className="font-orbitron text-sm font-bold tracking-wider uppercase">{cap.title}</h3>
+                            </div>
+                            <button 
+                              onClick={() => {
+                                if (cap.id === 'aida') {
+                                  const a = cap.content as any;
+                                  const text = `${a.attention}\n\n${a.interest}\n\n${a.desire}\n\n${a.action}`;
+                                  copyToClipboard(text, cap.id);
+                                } else {
+                                  copyToClipboard(cap.content as string, cap.id);
+                                }
+                              }}
+                              className={cn(
+                                "p-2 rounded-lg transition-all",
+                                copiedType === cap.id ? "bg-neon-green text-black" : "bg-white/5 hover:bg-white/10 text-white/60"
+                              )}
+                            >
+                              {copiedType === cap.id ? <Check size={16} /> : <Copy size={16} />}
+                            </button>
+                          </div>
+                          
+                          {cap.id === 'aida' ? (
+                            <div className="space-y-4">
+                              {[
+                                { label: 'Atracción', text: (cap.content as any).attention },
+                                { label: 'Interés', text: (cap.content as any).interest },
+                                { label: 'Deseo', text: (cap.content as any).desire },
+                                { label: 'Acción', text: (cap.content as any).action }
+                              ].map((part, i) => (
+                                <div key={i} className="space-y-1.5">
+                                  <div className="px-2 py-0.5 rounded bg-neon-blue/20 self-start inline-block text-[9px] font-black text-neon-blue uppercase tracking-wider">
+                                    {part.label}
+                                  </div>
+                                  <p className="text-sm text-white/80 leading-relaxed font-medium pl-1">
+                                    {part.text}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="space-y-4">
+                              <p className="text-sm text-white/80 leading-relaxed">
+                                "{cap.content}"
+                              </p>
+                              {cap.id === 'storytelling' && (
+                                <div className="flex items-center flex-wrap gap-2">
+                                  {isVideoProcessing === `story-${selectedResultIndex}` ? (
+                                    <div className="text-[9px] px-3 py-1.5 rounded bg-neon-blue/10 border border-neon-blue/30 text-neon-blue font-bold flex items-center gap-2">
+                                      <Cpu size={12} className="animate-spin" />
+                                      PROCESANDO
+                                    </div>
+                                  ) : activeDurationSelector === `story-${selectedResultIndex}` ? (
+                                    <>
+                                      <button
+                                        onClick={() => handleStorytellingVideo(cap.content, selectedResultIndex, 5)}
+                                        className="text-[9px] px-3 py-1.5 rounded bg-neon-blue text-black font-black uppercase tracking-wider hover:scale-105 transition-all"
+                                      >
+                                        5 SEGUNDOS
+                                      </button>
+                                      <button
+                                        onClick={() => handleStorytellingVideo(cap.content, selectedResultIndex, 10)}
+                                        className="text-[9px] px-3 py-1.5 rounded bg-neon-blue text-black font-black uppercase tracking-wider hover:scale-105 transition-all"
+                                      >
+                                        10 SEGUNDOS
+                                      </button>
+                                      <button
+                                        onClick={() => setActiveDurationSelector(null)}
+                                        className="p-1.5 rounded bg-white/5 text-white/40 hover:text-white transition-all"
+                                      >
+                                        <X size={12} />
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button
+                                      onClick={() => setActiveDurationSelector(`story-${selectedResultIndex}`)}
+                                      className="text-[9px] px-3 py-1.5 rounded bg-neon-blue/10 border border-neon-blue/30 text-neon-blue font-bold uppercase tracking-wider hover:bg-neon-blue hover:text-black transition-all flex items-center gap-2 group"
+                                    >
+                                      <Video size={12} className="group-hover:scale-110 transition-transform" />
+                                      CREAR VIDEO
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          <div className="absolute bottom-0 left-0 w-0 h-0.5 bg-neon-blue group-hover:w-full transition-all duration-500" />
+                        </div>
+                      ))}
+                      
+                      {activeHomeTab !== 'publicar' && (
+                        <button
+                          onClick={() => {
+                            if (metaToken) {
+                              setActiveHomeTab('publicar');
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
+                            } else {
+                              setShowSettings(true);
+                            }
+                          }}
+                          disabled={isPublishing}
+                          className="w-full py-4 rounded-xl bg-neon-blue text-black font-black text-sm uppercase tracking-[0.25em] flex items-center justify-center gap-3 hover:bg-neon-blue/80 transition-all shadow-[0_0_25px_rgba(0,209,255,0.4)] disabled:opacity-50"
+                        >
+                          {isPublishing ? (
+                            <Cpu className="animate-spin" size={20} />
+                          ) : (
+                            <Zap size={20} />
+                          )}
+                          {metaToken ? "CONTINUAR A LA PUBLICACIÓN" : "CONFIGURAR CUENTA DE META"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              ) : !isProcessing && (activeHomeTab === 'crear' || activeHomeTab === 'publicar') && (
+                <div className="flex flex-col items-center justify-center py-20 text-center space-y-6 opacity-60">
+                  <div className="relative w-40 h-40 flex items-center justify-center">
+                    {/* Neural Network background animation */}
+                    <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100">
+                      {/* Interconnected Nodes */}
+                      {[...Array(8)].map((_, i) => {
+                        const angle = (i * 2 * Math.PI) / 8;
+                        const x = 50 + 32 * Math.cos(angle);
+                        const y = 50 + 32 * Math.sin(angle);
+                        return (
+                          <React.Fragment key={i}>
+                            <motion.circle
+                              cx={x}
+                              cy={y}
+                              r="1.5"
+                              fill="#00D1FF"
+                              initial={{ opacity: 0.3 }}
+                              animate={{ opacity: [0.3, 1, 0.3], scale: [0.8, 1.3, 0.8] }}
+                              transition={{ duration: 3, repeat: Infinity, delay: i * 0.4 }}
+                            />
+                            <motion.path
+                              d={`M 50 50 L ${x} ${y}`}
+                              stroke="#00D1FF"
+                              strokeWidth="0.5"
+                              strokeDasharray="1 3"
+                              initial={{ pathLength: 0, opacity: 0 }}
+                              animate={{ pathLength: 1, opacity: [0, 0.4, 0] }}
+                              transition={{ duration: 4, repeat: Infinity, delay: i * 0.3 }}
+                            />
+                          </React.Fragment>
+                        );
+                      })}
+                      {/* Inner pulsing ring */}
+                      <motion.circle
+                        cx="50"
+                        cy="50"
+                        r="18"
+                        stroke="#00D1FF"
+                        strokeWidth="0.5"
+                        fill="none"
+                        initial={{ scale: 0.8, opacity: 0 }}
+                        animate={{ scale: 1.2, opacity: [0, 0.2, 0] }}
+                        transition={{ duration: 2, repeat: Infinity }}
+                      />
+                    </svg>
+                    
+                    <motion.div
+                      animate={{ 
+                        boxShadow: ["0 0 15px rgba(0,209,255,0.2)", "0 0 40px rgba(0,209,255,0.5)", "0 0 15px rgba(0,209,255,0.2)"],
+                        scale: [1, 1.05, 1]
+                      }}
+                      transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+                      className="w-24 h-24 rounded-full border border-neon-blue/40 flex items-center justify-center bg-neon-blue/5 z-10 backdrop-blur-sm"
+                    >
+                      <Brain size={48} className="text-neon-blue" />
+                    </motion.div>
+                  </div>
+                  <div className="space-y-4">
+                    <h2 className="font-orbitron text-xl font-bold uppercase tracking-[0.2em] text-white">Creative Neural Engine V2.0</h2>
+                    <p className="text-sm max-w-md mx-auto">
+                      Configura tu campaña y sube los datos históricos para que el motor neuronal genere tu próxima pieza ganadora.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs font-bold text-neon-blue uppercase tracking-widest">
+                    ANALIZAR <ChevronRight size={14} /> CREAR <ChevronRight size={14} /> PUBLICAR
+                  </div>
+                </div>
               )}
             </AnimatePresence>
           </div>
@@ -3758,7 +4087,7 @@ export default function App() {
                                 -{cost}
                               </div>
                               <div className="text-[7px] md:text-[8px] text-white/30 uppercase tracking-[0.2em] font-bold mt-1">
-                                CRÉDITOS
+                              CRÉDITOS
                               </div>
                             </div>
                             
@@ -4096,7 +4425,7 @@ export default function App() {
                 </button>
                 
                 <button
-                  onClick={() => publishStep === 'config' ? setPublishStep('preview') : executePublish()}
+                  onClick={() => publishStep === 'config' ? setPublishStep('preview') : (publishMode === 'bulk' ? executePublishBulk() : executePublish())}
                   disabled={isPublishing}
                   className={cn(
                     "flex-1 py-4 rounded-xl font-black text-sm uppercase tracking-[0.3em] flex items-center justify-center gap-3 transition-all shadow-[0_0_20px_rgba(0,209,255,0.2)] disabled:opacity-50",
@@ -4110,7 +4439,7 @@ export default function App() {
                   )}
                   {isPublishing 
                     ? "PUBLICANDO EN META..." 
-                    : (publishStep === 'config' ? "SIGUIENTE: VISTA PREVIA" : "Confirmar y Publicar (150 CRÉDITOS)")}
+                    : (publishStep === 'config' ? "SIGUIENTE: VISTA PREVIA" : (publishMode === 'bulk' ? `Confirmar y Publicar (${150 * results.length} CRÉDITOS)` : "Confirmar y Publicar (150 CRÉDITOS)"))}
                 </button>
               </div>
             </motion.div>

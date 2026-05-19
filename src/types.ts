@@ -41,6 +41,7 @@ export interface CampaignData {
   pixelId?: string;
   whatsappNumber?: string;
   currency?: string;
+  facebookPage?: string;
   facebookEnabled?: boolean;
   instagramEnabled?: boolean;
   feedEnabled?: boolean;
@@ -72,6 +73,7 @@ export interface CSVRow {
   cpc?: number;
   cpm?: number;
   gasto_total?: number;
+  fecha?: string;
 }
 
 export interface AnalysisReport {

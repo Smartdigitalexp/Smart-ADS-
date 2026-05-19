@@ -67,10 +67,12 @@ export async function getInsights(token: string, params: {
   level?: 'campaign' | 'adset' | 'ad';
   filtering?: string;
   timeRange?: { since: string; until: string };
+  timeIncrement?: number | 'all_days';
 }) {
   let url = `/api/meta/insights?adAccountId=${params.adAccountId}`;
   if (params.level) url += `&level=${params.level}`;
   if (params.filtering) url += `&filtering=${params.filtering}`;
+  if (params.timeIncrement) url += `&time_increment=${params.timeIncrement}`;
   if (params.timeRange) {
     url += `&time_range=${JSON.stringify(params.timeRange)}`;
   }

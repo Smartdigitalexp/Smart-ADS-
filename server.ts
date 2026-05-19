@@ -388,25 +388,28 @@ async function startServer() {
   // New: Get Insights with filtering
   app.get("/api/meta/insights", async (req, res) => {
     const accessToken = req.headers.authorization?.split(" ")[1];
-    const { adAccountId, level, filtering, time_range } = req.query;
+    const { adAccountId, level, filtering, time_range, time_increment } = req.query;
     if (!accessToken || !adAccountId) return res.status(400).json({ error: "Missing params" });
 
     const fullAdAccountId = adAccountId.toString().startsWith('act_') ? adAccountId : `act_${adAccountId}`;
     
     // Default metrics to fetch
-    const fields = "ad_id,ad_name,campaign_name,adset_name,impressions,clicks,ctr,inline_link_click_ctr,reach,spend,frequency,actions";
+    const fields = "ad_id,ad_name,campaign_name,adset_name,impressions,clicks,ctr,inline_link_click_ctr,reach,spend,frequency,actions,date_start";
     
     let url = `https://graph.facebook.com/v19.0/${fullAdAccountId}/insights?level=${level || 'ad'}&fields=${fields}&access_token=${accessToken}`;
     
     if (time_range) {
-      url += `&time_range=${time_range}`;
+      url += `&time_range=${encodeURIComponent(time_range as string)}`;
     } else {
       url += `&date_preset=last_30d`;
     }
 
+    if (time_increment) {
+      url += `&time_increment=${time_increment}`;
+    }
+
     if (filtering) {
-      // filtering should be a JSON string like [{"field":"ad.id","operator":"IN","value":["..."]}]
-      url += `&filtering=${filtering}`;
+      url += `&filtering=${encodeURIComponent(filtering as string)}`;
     }
 
     try {

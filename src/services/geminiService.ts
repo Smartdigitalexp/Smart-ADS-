@@ -77,25 +77,25 @@ export async function analyzeAndGenerate(
   const isFunnelMode = strategicPlan && strategicPlan.phases && strategicPlan.phases.length > 0 && variantsCount === 3;
   
   const funnelInstruction = isFunnelMode ? `
-    MODO ESTRATEGIA DIGITAL ACTIVADO:
-    Has diseñado previamente una Estrategia Digital con 3 fases. Genera EXACTAMENTE 3 variantes, una para cada fase del embudo:
+    MODO ESTRATEGIA DIGITAL ACTIVADO (FULL FUNNEL OPTIMIZATION):
+    Has diseñado previamente una Estrategia Digital con 3 fases. Genera EXACTAMENTE 3 variantes, una para cada fase del embudo, optimizando CADA ELEMENTO (visualPrompt, headline, captions) para el KPI de esa fase:
+
+    VARIANTE 1 - FASE: ${strategicPlan.phases[0].name} (Objetivo: ${strategicPlan.phases[0].objective})
+    - FOCO: Alcance, impacto visual masivo y recordación de marca.
+    - MENSAJE: ${strategicPlan.phases[0].message}
+    - VISUAL: Gran angular, atmósfera cinematográfica, impacto emocional, el producto como héroe.
     
-    FASE 1: ${strategicPlan.phases[0].name} (${strategicPlan.phases[0].objective})
-    - Mensaje: ${strategicPlan.phases[0].message}
-    - Formatos: ${strategicPlan.phases[0].formats.join(', ')}
-    - Inversión: ${strategicPlan.phases[0].investment} USD
+    VARIANTE 2 - FASE: ${strategicPlan.phases[1].name} (Objetivo: ${strategicPlan.phases[1].objective})
+    - FOCO: Demostración de producto, beneficios, educación y tráfico.
+    - MENSAJE: ${strategicPlan.phases[1].message}
+    - VISUAL: Detalles del producto, interacción humana realista, entorno de uso cotidiano, enfoque en "cómo funciona".
     
-    FASE 2: ${strategicPlan.phases[1].name} (${strategicPlan.phases[1].objective})
-    - Mensaje: ${strategicPlan.phases[1].message}
-    - Formatos: ${strategicPlan.phases[1].formats.join(', ')}
-    - Inversión: ${strategicPlan.phases[1].investment} USD
-    
-    FASE 3: ${strategicPlan.phases[2].name} (${strategicPlan.phases[2].objective})
-    - Mensaje: ${strategicPlan.phases[2].message}
-    - Formatos: ${strategicPlan.phases[2].formats.join(', ')}
-    - Inversión: ${strategicPlan.phases[2].investment} USD
-    
-    Cada variante debe estar estrictamente alineada con el objetivo y mensaje de su fase correspondiente.
+    VARIANTE 3 - FASE: ${strategicPlan.phases[2].name} (Objetivo: ${strategicPlan.phases[2].objective})
+    - FOCO: Venta directa, urgencia, oferta irresistible y conversión.
+    - MENSAJE: ${strategicPlan.phases[2].message}
+    - VISUAL: Plano medio/corto, enfoque en el beneficio final, CTA visual claro, composición dinámica que invite a la acción inmediata.
+
+    Cada variante DEBE ser una pieza maestra individual que cumpla su rol en el ecosistema del funnel.
   ` : '';
 
   const response = await ai.models.generateContent({
@@ -521,7 +521,8 @@ export async function generateStrategicPlan(
   totalBudget: number,
   audience: string,
   objective: string,
-  currency: string = 'USD'
+  currency: string = 'USD',
+  facebookPage?: string
 ): Promise<StrategicPlan> {
   const isCOP = currency === 'COP';
 
@@ -530,18 +531,21 @@ export async function generateStrategicPlan(
     1. Fase de RECONOCIMIENTO (Awareness):
        - CPM: $1,580 COP.
        - Impresiones = (Presupuesto fase / CPM) * 1000.
+       - Alcance = Impresiones * 0.75.
        - CTR: 0.1%.
        - Clics = Impresiones * CTR.
        - Porcentaje de Conversión: 0.5% de los Clics.
     2. Fase de CONSIDERACIÓN (Tráfico/Consideration):
        - CPM: $2,500 COP.
        - Impresiones = (Presupuesto fase / CPM) * 1000.
+       - Alcance = Impresiones * 0.75.
        - CTR: 1%.
        - Clics = Impresiones * CTR.
        - Porcentaje de Conversión: 1% de los Clics.
     3. Fase de CONVERSIÓN (Conversion):
-       - CPM: $10,000 COP (para cálculo de Alcance/Impresiones).
+       - CPM: $6,890 COP (para cálculo de Alcance/Impresiones).
        - Impresiones = (Presupuesto fase / CPM) * 1000.
+       - Alcance = Impresiones * 0.75.
        - CTR: 2%.
        - Clics = Impresiones * CTR.
        - Porcentaje de Conversión: 2.5% de los Clics.
@@ -549,12 +553,13 @@ export async function generateStrategicPlan(
   ` : `
     REGLAS DE CÁLCULO DE KPIs (USD):
     - Usa benchmarks internacionales estándar de Meta Ads para proyecciones de impresiones, clics y conversiones.
+    - Alcance (Reach) = Siempre calcular como exactamente el 75% de las Impresiones (Reach = Impressions * 0.75).
   `;
 
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: `
-    PRODUCTO: ${productName}
+    PRODUCTO: ${productName} ${facebookPage ? `(Página de Facebook: ${facebookPage})` : ''}
     PRESUPUESTO TOTAL: ${totalBudget} ${currency}
     AUDIENCIA: ${audience}
     OBJETIVO PRINCIPAL: ${objective}

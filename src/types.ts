@@ -136,6 +136,7 @@ export interface StrategicPlan {
   totalInvestment: number;
   estimatedTotalConversions: number;
   strategicAdvice: string;
+  currency?: string;
 }
 
 export interface HistoryItem {

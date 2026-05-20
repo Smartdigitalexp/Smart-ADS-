@@ -1160,13 +1160,30 @@ export default function App() {
       const pageObject = pages.find(p => p.id === selectedPage);
       const pageName = pageObject ? pageObject.name : campaign.facebookPage;
 
+      // Calculate analysis metrics if csvData exists
+      let analysisMetrics = undefined;
+      if (csvData.length > 0) {
+        const totalImpressions = csvData.reduce((acc, curr) => acc + (curr.impresiones || 0), 0);
+        const totalResults = csvData.reduce((acc, curr) => acc + (curr.resultados || 0), 0);
+        const totalClicks = csvData.reduce((acc, curr) => acc + (curr.clics_enlace || 0), 0);
+        const totalSpend = csvData.reduce((acc, curr) => acc + (curr.gasto_total || 0), 0);
+        
+        analysisMetrics = {
+          avgCtr: totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0,
+          avgCpc: totalClicks > 0 ? totalSpend / totalClicks : 0,
+          avgCpm: totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : 0,
+          avgCpa: totalResults > 0 ? totalSpend / totalResults : 0
+        };
+      }
+
       const plan = await generateStrategicPlan(
         campaign.productName,
         parseFloat(campaign.budget || '0'),
         campaign.audience,
         campaign.objective,
         campaign.currency,
-        pageName
+        pageName,
+        analysisMetrics
       );
       setStrategicPlan(plan);
       setChatNotification('¡Estrategia Digital Generada! Revisa el Funnel y Cronograma.');
@@ -2504,23 +2521,22 @@ export default function App() {
                             </div>
 
                             <div className="space-y-2">
-                               <label className="text-[9px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Página de Facebook</label>
+                               <label className="text-[9px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Objetivo</label>
                                <select 
-                                 value={selectedPage}
-                                 onChange={(e) => setSelectedPage(e.target.value)}
+                                 value={campaign.objective}
+                                 onChange={(e) => setCampaign(prev => ({ ...prev, objective: e.target.value }))}
                                  className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-xs text-white/80 focus:border-neon-blue outline-none font-orbitron"
                                >
-                                 <option value="">Seleccionar página...</option>
-                                 {pages.map(p => (
-                                   <option key={p.id} value={p.id}>{p.name}</option>
-                                 ))}
+                                 <option value="Ventas">Ventas</option>
+                                 <option value="Clientes Potenciales">Clientes Potenciales</option>
+                                 <option value="WhatsApp">WhatsApp</option>
                                </select>
                             </div>
                           </div>
                           
                           <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                               <label className="text-[9px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Presupuesto Total (USD)</label>
+                               <label className="text-[9px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Presupuesto Total</label>
                                <input 
                                  type="number" 
                                  value={campaign.budget}
@@ -2594,15 +2610,15 @@ export default function App() {
                               >
                                 <div className={cn(
                                   "flex flex-col items-center text-center px-2 relative z-10",
-                                  idx === 2 && "-translate-y-4"
+                                  idx === 2 && "-translate-y-6"
                                 )}>
                                   <PhaseIcon 
-                                    size={idx === 2 ? 18 : 24} 
+                                    size={idx === 2 ? 14 : 24} 
                                     className="text-white/40 mb-1 group-hover:text-neon-blue group-hover:scale-110 transition-all" 
                                   />
                                   <span className={cn(
                                     "font-orbitron font-black text-white uppercase tracking-tighter leading-none block",
-                                    idx === 2 ? "text-[9px]" : "text-[10px] sm:text-[12px]"
+                                    idx === 2 ? "text-[8px]" : "text-[10px] sm:text-[12px]"
                                   )}>
                                     {cleanName}
                                   </span>
@@ -2628,16 +2644,7 @@ export default function App() {
                             <Target className="text-neon-blue" size={20} />
                             <h3 className="font-orbitron text-xs font-bold text-white uppercase tracking-widest">ESTRATEGIA DE MEDIOS</h3>
                           </div>
-                          <button 
-                            onClick={async () => {
-                              setActiveHomeTab('publicar');
-                              await processAds();
-                            }}
-                            className="px-6 py-3 rounded-xl bg-neon-blue text-black font-black uppercase tracking-widest text-[9px] flex items-center justify-center gap-2 hover:scale-105 active:scale-95 transition-all shadow-[0_0_20px_rgba(0,209,255,0.4)]"
-                          >
-                            <Zap size={14} className="fill-current" />
-                            CREAR LOS 3 ANUNCIOS DEL EMBUDO AHORA
-                          </button>
+                          {/* CREAR button hidden per user request */}
                         </div>
                         <p className="text-xs text-white/70 leading-relaxed italic">{strategicPlan.summary}</p>
                       </div>
@@ -2683,7 +2690,7 @@ export default function App() {
                                      <div className="space-y-1">
                                        <p className="text-[8px] text-white/30 uppercase tracking-widest">Inversión</p>
                                        <p className="font-orbitron text-xs font-bold text-green-400">
-                                         ${Math.round(phase.investment).toLocaleString()} {campaign.currency}
+                                         ${Math.round(phase.investment).toLocaleString()} {strategicPlan.currency || campaign.currency}
                                        </p>
                                      </div>
                                      <div className="space-y-1">
@@ -2756,12 +2763,14 @@ export default function App() {
                                   <td className="py-4 px-4 text-[10px] text-white/60">
                                     {Math.round(phase.estimates.reach || (phase.estimates.impressions * 0.75)).toLocaleString()}
                                   </td>
-                                  <td className="py-4 px-4 text-[10px] text-white">{phase.estimates.ctr.toFixed(1)}%</td>
+                                  <td className="py-4 px-4 text-[10px] text-white">
+                                    {((phase.estimates.clicks / (phase.estimates.reach || (phase.estimates.impressions * 0.75))) * 100).toFixed(1)}%
+                                  </td>
                                   <td className="py-4 px-4 text-[10px] text-white">{Math.round(phase.estimates.clicks).toLocaleString()}</td>
                                   <td className="py-4 px-4 text-[10px] text-white">${Math.round(phase.estimates.cpc).toLocaleString()}</td>
                                   <td className="py-4 px-4 text-[10px] text-white">${Math.round(phase.estimates.cpm).toLocaleString()}</td>
                                   <td className="py-4 px-4 text-[10px] font-bold text-neon-green">{Math.round(phase.estimates.conversions).toLocaleString()}</td>
-                                  <td className="py-4 px-4 text-[10px] text-white">{phase.estimates.cpa ? `$${Math.round(phase.estimates.cpa).toLocaleString()}` : '-'}</td>
+                                  <td className="py-4 px-4 text-[10px] text-white">${Math.round(phase.estimates.cpa || (phase.investment / phase.estimates.conversions)).toLocaleString()}</td>
                                 </tr>
                               ))}
                               <tr className="bg-neon-blue/10">
@@ -2770,11 +2779,20 @@ export default function App() {
                                 <td className="py-4 px-4 text-[10px] text-white/60">
                                   {Math.round(strategicPlan.phases.reduce((acc, p) => acc + (p.estimates.reach || (p.estimates.impressions * 0.75)), 0)).toLocaleString()}
                                 </td>
-                                <td className="py-4 px-4 text-[10px] text-white">-</td>
+                                <td className="py-4 px-4 text-[10px] text-white">
+                                  {(strategicPlan.phases.reduce((acc, p) => acc + p.estimates.clicks, 0) / strategicPlan.phases.reduce((acc, p) => acc + (p.estimates.reach || (p.estimates.impressions * 0.75)), 0) * 100).toFixed(1)}%
+                                </td>
                                 <td className="py-4 px-4 text-[10px] text-white">{Math.round(strategicPlan.phases.reduce((acc, p) => acc + p.estimates.clicks, 0)).toLocaleString()}</td>
-                                <td className="py-4 px-4 text-[10px] text-white">-</td>
-                                <td className="py-4 px-4 text-[10px] text-white">-</td>
+                                <td className="py-4 px-4 text-[10px] text-white">
+                                  ${Math.round(strategicPlan.phases.reduce((acc, p) => acc + p.investment, 0) / strategicPlan.phases.reduce((acc, p) => acc + p.estimates.clicks, 0)).toLocaleString()}
+                                </td>
+                                <td className="py-4 px-4 text-[10px] text-white">
+                                  ${Math.round(strategicPlan.phases.reduce((acc, p) => acc + p.investment, 0) / strategicPlan.phases.reduce((acc, p) => acc + p.estimates.impressions, 0) * 1000).toLocaleString()}
+                                </td>
                                 <td className="py-4 px-4 text-[10px] font-black text-neon-green">{Math.round(strategicPlan.estimatedTotalConversions).toLocaleString()}</td>
+                                <td className="py-4 px-4 text-[10px] text-white">
+                                  ${Math.round(strategicPlan.phases.reduce((acc, p) => acc + p.investment, 0) / strategicPlan.estimatedTotalConversions).toLocaleString()}
+                                </td>
                               </tr>
                             </tbody>
                           </table>
@@ -2791,7 +2809,7 @@ export default function App() {
                           <div className="flex items-center gap-6">
                             <div className="flex flex-col items-end">
                               <span className="text-[8px] text-white/40 uppercase tracking-widest">Inversión Total</span>
-                              <span className="font-orbitron text-xs font-black text-green-400">${Math.round(strategicPlan.totalInvestment).toLocaleString()} {campaign.currency}</span>
+                              <span className="font-orbitron text-xs font-black text-green-400">${Math.round(strategicPlan.totalInvestment).toLocaleString()} {strategicPlan.currency || campaign.currency}</span>
                             </div>
                             <div className="flex flex-col items-end">
                               <span className="text-[8px] text-white/40 uppercase tracking-widest">Duración Total</span>
@@ -2874,9 +2892,9 @@ export default function App() {
 
                       {/* Action Button */}
                       <button 
-                        onClick={async () => {
-                          setActiveHomeTab('publicar');
-                          await processAds();
+                        onClick={() => {
+                          setActiveHomeTab('crear');
+                          setActiveAssetTool('campaign');
                         }}
                         className="w-full py-6 rounded-2xl bg-neon-blue text-black font-black uppercase text-xs tracking-[0.3em] shadow-[0_0_40px_rgba(0,209,255,0.4)] hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-4 group"
                       >
@@ -3553,7 +3571,7 @@ export default function App() {
                                   : "bg-white/5 text-white/40 hover:bg-white/10 hover:text-white"
                               )}
                             >
-                              {res.funnelPhase ? res.funnelPhase.name.toUpperCase() : `OPCIÓN ${idx + 1}`}
+                              {res.funnelPhase ? res.funnelPhase.name.replace(/\s*\(.*?\)\s*/g, '').toUpperCase() : `OPCIÓN ${idx + 1}`}
                             </button>
                           ))}
                         </div>
@@ -3576,18 +3594,7 @@ export default function App() {
                         </div>
                       </div>
                       
-                      <button 
-                        onClick={() => metaToken ? setShowPublishModal(true) : setShowSettings(true)}
-                        disabled={isPublishing}
-                        className="flex items-center gap-2 bg-[#1877F2] hover:bg-[#166fe5] text-white text-[10px] font-bold px-4 py-3 rounded-lg transition-all shadow-[0_0_15px_rgba(24,119,242,0.3)] disabled:opacity-50"
-                      >
-                        {isPublishing ? (
-                          <Cpu className="animate-spin" size={14} />
-                        ) : (
-                          <Zap size={14} />
-                        )}
-                        {metaToken ? `CREAR ${results[selectedResultIndex]?.funnelPhase?.name || `OPCIÓN ${selectedResultIndex + 1}`}`.toUpperCase() : "CONFIGURAR META"}
-                      </button>
+                      {/* CREAR button hidden per user request */}
                     </div>
                   </div>
 
@@ -3861,7 +3868,7 @@ export default function App() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2 text-xs font-bold text-neon-blue uppercase tracking-widest">
-                    ANALIZAR <ChevronRight size={14} /> CREAR <ChevronRight size={14} /> PUBLICAR
+                    ANALIZA <ChevronRight size={14} /> PLANIFICA <ChevronRight size={14} /> CREA <ChevronRight size={14} /> PUBLICA
                   </div>
                 </div>
               )}

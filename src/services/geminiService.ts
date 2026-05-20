@@ -522,48 +522,145 @@ export async function generateStrategicPlan(
   audience: string,
   objective: string,
   currency: string = 'USD',
-  facebookPage?: string
+  facebookPage?: string,
+  analysisMetrics?: {
+    avgCtr: number;
+    avgCpc: number;
+    avgCpm: number;
+    avgCpa: number;
+  }
 ): Promise<StrategicPlan> {
-  const isCOP = currency === 'COP';
+  const usdToCopRate = 3796.78; // Tasa real del día (TRM)
+  const isUSDConverted = currency === 'USD';
+
+  let workingBudget = totalBudget;
+  let workingCurrency = currency;
+  if (isUSDConverted) {
+    workingBudget = totalBudget * usdToCopRate;
+    workingCurrency = 'COP';
+  }
+
+  const isCOP = workingCurrency === 'COP';
+
+  // Determine duration based on total budget:
+  // - Menos de $2000000 se distribuye en 1 mes (30 días).
+  // - $2000000 o más se distribuye en 2 meses (60 días).
+  // - $5000000 o más se distribuye en 3 meses (90 días).
+  let targetTotalDays = 60; // Default to 2 months (60 days)
+  let targetMonthsLabel = "dos meses (60 días)";
+
+  if (isCOP) {
+    if (workingBudget >= 5000000) {
+      targetTotalDays = 90;
+      targetMonthsLabel = "tres meses (90 días)";
+    } else if (workingBudget >= 2000000) {
+      targetTotalDays = 60;
+      targetMonthsLabel = "dos meses (60 días)";
+    } else {
+      targetTotalDays = 30;
+      targetMonthsLabel = "un mes (30 días)";
+    }
+  } else {
+    // Equivalent USD limits if users switch currency
+    if (workingBudget >= 5000) {
+      targetTotalDays = 90;
+      targetMonthsLabel = "tres meses (90 días)";
+    } else if (workingBudget >= 2000) {
+      targetTotalDays = 60;
+      targetMonthsLabel = "dos meses (60 días)";
+    } else {
+      targetTotalDays = 30;
+      targetMonthsLabel = "un mes (30 días)";
+    }
+  }
+
+  // Determine conversion percentage for the conversion phase based on the campaign objective:
+  // - Ventas: 3% (0.03)
+  // - Clientes Potenciales / Leads: 9% (0.09)
+  // - WhatsApp: 7% (0.07)
+  let conversionPercent = 3;
+  const lowerObjective = objective.toLowerCase();
+  if (lowerObjective.includes('cliente') || lowerObjective.includes('lead') || lowerObjective.includes('potenciales')) {
+    conversionPercent = 9;
+  } else if (lowerObjective.includes('whatsapp') || lowerObjective.includes('whats')) {
+    conversionPercent = 7;
+  }
+  const conversionRate = conversionPercent / 100;
+
+  // Determine conversion percentage for the consideration phase based on the campaign objective:
+  // - Clientes Potenciales / Leads: 3% (0.03)
+  // - WhatsApp: 2.5% (0.025)
+  // - Other (like Ventas): 2% (0.02)
+  let considerationPercent = 2;
+  if (lowerObjective.includes('cliente') || lowerObjective.includes('lead') || lowerObjective.includes('potenciales')) {
+    considerationPercent = 3;
+  } else if (lowerObjective.includes('whatsapp') || lowerObjective.includes('whats')) {
+    considerationPercent = 2.5;
+  }
+  const considerationRate = considerationPercent / 100;
+
+  const performanceContext = analysisMetrics ? `
+    DATOS REALES DE RENDIMIENTO (USAR COMO BASE PARA ESTIMADOS):
+    - CTR Promedio Real: ${analysisMetrics.avgCtr.toFixed(2)}%
+    - CPC Promedio Real: ${analysisMetrics.avgCpc.toFixed(2)} ${workingCurrency}
+    - CPM Promedio Real: ${analysisMetrics.avgCpm.toFixed(2)} ${workingCurrency}
+    - CPA Promedio Real: ${analysisMetrics.avgCpa.toFixed(2)} ${workingCurrency}
+    
+    INSTRUCCIÓN: Utiliza estos datos reales para proyectar los resultados de las 3 fases del funnel, ajustándolos ligeramente según el objetivo de cada fase (conciencia vs conversión).
+  ` : '';
 
   const kpiInstructions = isCOP ? `
     REGLAS DE CÁLCULO DE KPIs (MERCADO COLOMBIA - COP):
+    ${performanceContext ? 'Ajusta estos benchmarks usando los DATOS REALES DE RENDIMIENTO proporcionados arriba como prioridad.' : ''}
     1. Fase de RECONOCIMIENTO (Awareness):
-       - CPM: $1,580 COP.
+       - CPM: $1,590 COP.
        - Impresiones = (Presupuesto fase / CPM) * 1000.
-       - Alcance = Impresiones * 0.75.
-       - CTR: 0.1%.
-       - Clics = Impresiones * CTR.
-       - Porcentaje de Conversión: 0.5% de los Clics.
+       - Alcance = Impresiones / 1.5 (Frecuencia de 1.5).
+       - CTR = 0.5%.
+       - Clics = Alcance * CTR (Calculado sobre el Alcance como pidió el usuario).
+       - Conversiones = Clics * 0.005.
+       - CPA = Presupuesto fase / Conversiones.
     2. Fase de CONSIDERACIÓN (Tráfico/Consideration):
-       - CPM: $2,500 COP.
+       - CPM: $2,580 COP.
        - Impresiones = (Presupuesto fase / CPM) * 1000.
-       - Alcance = Impresiones * 0.75.
-       - CTR: 1%.
-       - Clics = Impresiones * CTR.
-       - Porcentaje de Conversión: 1% de los Clics.
+       - Alcance = Impresiones / 2.5 (Frecuencia de 2.5).
+       - CTR = 2%.
+       - Clics = Alcance * CTR.
+       - Conversiones = Clics * ${considerationRate}.
+       - CPA = Presupuesto fase / Conversiones.
     3. Fase de CONVERSIÓN (Conversion):
-       - CPM: $6,890 COP (para cálculo de Alcance/Impresiones).
+       - CPM: $5,890 COP (para cálculo de Alcance/Impresiones).
        - Impresiones = (Presupuesto fase / CPM) * 1000.
-       - Alcance = Impresiones * 0.75.
-       - CTR: 2%.
-       - Clics = Impresiones * CTR.
-       - Porcentaje de Conversión: 2.5% de los Clics.
-       - CPA (Costo por Adquisición) = Inversión de esta fase / Conversiones.
+       - Alcance = Impresiones / 3.2 (Frecuencia de 3.2).
+       - CTR = 5%.
+       - Clics = Alcance * CTR.
+       - Conversiones = Clics * ${conversionRate}.
+       - CPA = Presupuesto fase / Conversiones.
   ` : `
     REGLAS DE CÁLCULO DE KPIs (USD):
-    - Usa benchmarks internacionales estándar de Meta Ads para proyecciones de impresiones, clics y conversiones.
-    - Alcance (Reach) = Siempre calcular como exactamente el 75% de las Impresiones (Reach = Impressions * 0.75).
+    ${performanceContext ? performanceContext : 'Usa benchmarks internacionales estándar de Meta Ads para proyecciones de impresiones, clics y conversiones.'}
+    - Alcance (Reach) = Calcular según frecuencia por fase:
+      * Fase Reconocimiento: Impresiones / 1.5
+      * Fase Consideración: Impresiones / 2.5
+      * Fase Conversión: Impresiones / 3.2
+    - CTR (Basado en Alcance):
+      * Fase Reconocimiento: 0.5%
+      * Fase Consideración: 2%
+      * Fase Conversión: 5%
+    - Clicks = Alcance * CTR.
+    - Calcula el CPA para TODAS las fases (Awareness, Consideration, Conversion).
+    - En la fase de Consideración, asume una tasa de conversión del ${considerationPercent}%.
+    - En la fase de Conversión, asume una tasa de conversión del ${conversionPercent}%.
   `;
 
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: `
     PRODUCTO: ${productName} ${facebookPage ? `(Página de Facebook: ${facebookPage})` : ''}
-    PRESUPUESTO TOTAL: ${totalBudget} ${currency}
+    PRESUPUESTO TOTAL: ${workingBudget} ${workingCurrency} ${isUSDConverted ? `(Convertido de ${totalBudget} USD a COP usando la TRM de $${usdToCopRate} COP/USD)` : ''}
     AUDIENCIA: ${audience}
     OBJETIVO PRINCIPAL: ${objective}
-    CURRENCY: ${currency}
+    CURRENCY: ${workingCurrency}
 
     TAREA:
     Eres un Planner de Medios Digitales Estratégico Senior. Tu tarea es diseñar una ESTRATEGIA DE MEDIOS DIGITAL PROFESIONAL y COMPLETA.
@@ -571,14 +668,19 @@ export async function generateStrategicPlan(
 
     ${kpiInstructions}
 
+    REGLAS DE DURACIÓN TOTAL OBLIGATORIA:
+    El plan completo de medios debe distribuirse en exactamente ${targetMonthsLabel}.
+    Por lo tanto, la sumatoria de las duraciones 'durationDays' para las tres fases (Reconocimiento + Consideración + Conversión) debe sumar EXACTAMENTE ${targetTotalDays} días en total.
+    Tú decides cómo se reparte (por ejemplo, dividiendo exactamente en partes de ${Math.round(targetTotalDays / 3)} días por fase, o con una ponderación estratégica según tu criterio, pero la suma total de las tres fases DEBE SER EXACTAMENTE ${targetTotalDays} DÍAS).
+
     REQUERIMIENTOS POR FASE:
     1. Nombre de la fase.
     2. Objetivo específico de la fase.
     3. Mensaje clave / Storytelling de la fase.
     4. Formatos recomendados.
     5. Tipos de contenido.
-    6. Duración sugerida en días.
-    7. Inversión sugerida (distribución lógica del presupuesto total de ${totalBudget} entre las fases).
+    6. Duración sugerida en días ('durationDays'). La suma total de las tres fases debe ser exactamente de ${targetTotalDays} días.
+    7. Inversión sugerida (distribución lógica del presupuesto total de ${workingBudget} entre las fases).
     8. Estimaciones matemáticas precisas siguiendo las reglas de cálculo proporcionadas arriba.
 
     Responde exclusivamente en formato JSON.
@@ -630,7 +732,12 @@ export async function generateStrategicPlan(
   });
 
   const text = response.text || "{}";
-  return JSON.parse(text);
+  const planObj = JSON.parse(text);
+  planObj.currency = workingCurrency;
+  if (isUSDConverted) {
+    planObj.summary = `*(Plan de medios convertido de USD a COP utilizando la tasa TRM del día de $${usdToCopRate.toLocaleString('es-CO')} COP/USD)* — ` + planObj.summary;
+  }
+  return planObj;
 }
 
 export async function enhancePrompt(

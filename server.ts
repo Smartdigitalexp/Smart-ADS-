@@ -78,6 +78,27 @@ async function startServer() {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
+  // Dedicated endpoints for SEO / Search Console
+  app.get("/sitemap.xml", (req, res) => {
+    try {
+      const sitemapPath = path.join(process.cwd(), "public", "sitemap.xml");
+      res.header("Content-Type", "application/xml");
+      res.send(fs.readFileSync(sitemapPath, "utf8"));
+    } catch (e) {
+      res.status(404).send("Sitemap not found");
+    }
+  });
+
+  app.get("/robots.txt", (req, res) => {
+    try {
+      const robotsPath = path.join(process.cwd(), "public", "robots.txt");
+      res.header("Content-Type", "text/plain");
+      res.send(fs.readFileSync(robotsPath, "utf8"));
+    } catch (e) {
+      res.status(404).send("Robots file not found");
+    }
+  });
+
   // --- Credit & Payment Routes ---
 
   // 1. Initial Credits for new users

@@ -51,7 +51,10 @@ import {
   RefreshCcw,
   Search,
   Wand2,
-  Megaphone
+  Megaphone,
+  Plus,
+  PlusCircle,
+  Box
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
@@ -61,6 +64,8 @@ import { analyzeAndGenerate, generateCreativeConcept, generateVideoFromPrompt, o
 import { AdResult, CampaignData, CSVRow, HistoryItem, UserProfile, AnalysisReport, StrategicPlan } from './types';
 import { SmartBot } from './components/SmartBot';
 import { Logo } from './components/Logo';
+import { VR360Viewer } from './components/VR360Viewer';
+import { Product3DModeler } from './components/Product3DModeler';
 import {
   ResponsiveContainer,
   AreaChart,
@@ -133,6 +138,21 @@ const AssetToolCard = ({ icon, title, desc, onClick, active }: { icon: any, titl
   </motion.div>
 );
 
+const CAMERA_MOVEMENTS = [
+  { name: 'Panorámica (Paneo)', desc: 'Movimiento horizontal suave para revelar el escenario.' },
+  { name: 'Inclinación (Tilt)', desc: 'Inclinación vertical que aporta perspectiva dinámica.' },
+  { name: 'Rotación (Roll / Dutch roll)', desc: 'Giro de cámara para tensión o estilo de vanguardia.' },
+  { name: 'Travelling', desc: 'Desplazamiento horizontal fluido que acompaña al sujeto en movimiento.' },
+  { name: 'Travelling vertical', desc: 'Ascenso o descenso suave de cámara para revelar magnitud.' },
+  { name: 'Crábing (Crabbing)', desc: 'Seguimiento lateral paralelo y preciso del sujeto.' },
+  { name: 'Estabilizador (Steadycam / Gimbal)', desc: 'Toma ultra-fluida que flota suavemente alrededor del visual.' },
+  { name: 'Grúa / Pluma (Boom)', desc: 'Arco dramático de gran impacto cinematográfico sobre el producto.' },
+  { name: 'Zoom In / Zoom Out', desc: 'Acercamiento o alejamiento de lente para guiar la atención.' },
+  { name: 'Crash Zoom', desc: 'Zoom ultra-rápido de gran impacto sobre un detalle.' },
+  { name: 'Enfoque selectivo (Rack Focus)', desc: 'Cambio suave de nitidez entre fondos y el producto.' },
+  { name: 'Dolly Zoom', desc: 'Efecto vértigo para destacar al sujeto distorsionando el fondo.' }
+];
+
 export default function App() {
   const [campaign, setCampaign] = useState<CampaignData>({
     productName: '',
@@ -171,6 +191,7 @@ export default function App() {
   const [visualFile, setVisualFile] = useState<File | null>(null);
   const [visualPreview, setVisualPreview] = useState<string | null>(null);
   const [optimizedVisual, setOptimizedVisual] = useState<string | null>(null);
+  const [fixedResultVisual, setFixedResultVisual] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isStudioProcessing, setIsStudioProcessing] = useState(false);
   const [showStudioComparison, setShowStudioComparison] = useState(false);
@@ -183,10 +204,46 @@ export default function App() {
   const [isGeneratingConcept, setIsGeneratingConcept] = useState(false);
   const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
   const [activeHomeTab, setActiveHomeTab] = useState<'analizar' | 'planificar' | 'crear' | 'publicar'>('analizar');
-  const [activeAssetTool, setActiveAssetTool] = useState<'hub' | 'campaign' | 'generate_img' | 'product_img' | 'animate' | 'edit_img' | 'video_gen'>('hub');
+  const [activeAssetTool, setActiveAssetTool] = useState<'hub' | 'campaign' | 'generate_img' | 'product_img' | 'animate' | 'edit_img' | 'video_gen' | 'equirectangular_360' | 'video_360' | 'product_3d'>('hub');
+  const [showVRViewer, setShowVRViewer] = useState<boolean>(false);
+  const [last360Tool, setLast360Tool] = useState<'equirectangular_360' | 'video_360'>('equirectangular_360');
+  const [generated360Background, setGenerated360Background] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const elementInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
+
+  // States for 3D elements in 360/VR space pre-configuration
+  const [vr360InsertType, setVr360InsertType] = useState<'none' | 'text' | 'image' | '3d_model'>('none');
+  const [vr360Selected3DShape, setVr360Selected3DShape] = useState<'cube' | 'torus' | 'pyramid' | 'torusknot' | 'sphere'>('cube');
+  const [vr360Model3DColor, setVr360Model3DColor] = useState('#00d1ff');
+  const [vr360Model3DStyle, setVr360Model3DStyle] = useState<'wireframe' | 'solid' | 'glowing'>('wireframe');
+
+  // New states for "Agregar Elementos" inside Editar Anuncios
+  const [editMode, setEditMode] = useState<'modify' | 'add_elements'>('modify');
+  const [elementFile, setElementFile] = useState<File | null>(null);
+  const [elementPreview, setElementPreview] = useState<string | null>(null);
+  const [elementTarget, setElementTarget] = useState<'base' | 'result'>('base');
+  const [elementX, setElementX] = useState<number>(50);
+  const [elementY, setElementY] = useState<number>(50);
+  const [elementScale, setElementScale] = useState<number>(35);
+  const [elementOpacity, setElementOpacity] = useState<number>(100);
+
+  // New states for "Imágenes 360°" to support Video 360° creation/conversion
+  const [vr360FormatType, setVr360FormatType] = useState<'image' | 'video'>('image');
+  const [vr360VideoDuration, setVr360VideoDuration] = useState<5 | 10>(5);
+
+  const handleElementUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setElementFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setElementPreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   // Firebase & History State
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
@@ -219,6 +276,7 @@ export default function App() {
   const [toolPrompt, setToolPrompt] = useState('');
   const [toolResult, setToolResult] = useState<string | null>(null);
   const [isToolProcessing, setIsToolProcessing] = useState(false);
+  const [selectedCameraMovement, setSelectedCameraMovement] = useState<string | null>(null);
 
   const handleExecuteTool = async () => {
     if (!toolPrompt.trim()) return;
@@ -231,18 +289,54 @@ export default function App() {
       const mime = visualPreview?.split(';')[0].split(':')[1];
 
       if (activeAssetTool === 'generate_img') {
-        result = await generateImageFromPrompt(toolPrompt, campaign.aspectRatio);
-      } else if (activeAssetTool === 'product_img') {
-        // We use optimizeProductReference but with the prompt
-        // Let's use generic image generation with the product ref
         result = await generateImageFromPrompt(toolPrompt, campaign.aspectRatio, base64, mime);
-      } else if (activeAssetTool === 'animate') {
-        result = await generateVideoFromPrompt(toolPrompt, campaign.aspectRatio, base64, mime);
-      } else if (activeAssetTool === 'video_gen') {
-        result = await generateVideoFromPrompt(toolPrompt, campaign.aspectRatio, base64, mime);
+      } else if (['equirectangular_360', 'video_360'].includes(activeAssetTool)) {
+        if (activeAssetTool === 'video_360' || vr360FormatType === 'video') {
+          let finalPrompt = toolPrompt;
+          if (selectedCameraMovement) {
+            finalPrompt = `[Movimiento de cámara: ${selectedCameraMovement}] ${toolPrompt}`;
+          }
+          result = await generateVideoFromPrompt(finalPrompt, '2:1 (360°)', base64, mime, vr360VideoDuration);
+        } else {
+          result = await generateImageFromPrompt(toolPrompt, '2:1 (360°)', base64, mime);
+        }
+      } else if (activeAssetTool === 'product_img' || activeAssetTool === 'edit_img') {
+        if (activeAssetTool === 'edit_img' && editMode === 'add_elements') {
+          // Add Elements Mode
+          let targetBase64 = base64;
+          let targetMime = mime;
+
+          if (elementTarget === 'result') {
+            const resultUrl = toolResult || results[selectedResultIndex]?.generatedImageUrl;
+            if (resultUrl && resultUrl.startsWith('data:image')) {
+              targetBase64 = resultUrl.split(',')[1];
+              targetMime = resultUrl.split(';')[0].split(':')[1];
+            }
+          }
+
+          const elemBase64 = elementPreview?.split(',')[1];
+          const elemMime = elementPreview?.split(';')[0].split(':')[1];
+
+          // Compose enhanced prompt suggesting exact placement
+          const compositionPrompt = `${toolPrompt} [FUSIÓN COMPUESTA AI]: Coloca el elemento a escala de ${elementScale}%, con opacidad de ${elementOpacity}%, posicionado horizontalmente al ${elementX}% y verticalmente al ${elementY}% del lienzo base. Realiza una fusión perfecta, con sombras arrojadas realistas, iluminación de contorno coherente e integración fluida en la escena.`;
+
+          result = await generateImageFromPrompt(compositionPrompt, campaign.aspectRatio, targetBase64, targetMime, elemBase64, elemMime);
+        } else {
+          // Standard edit/product image
+          result = await generateImageFromPrompt(toolPrompt, campaign.aspectRatio, base64, mime);
+        }
+      } else if (activeAssetTool === 'animate' || activeAssetTool === 'video_gen') {
+        let finalPrompt = toolPrompt;
+        if (selectedCameraMovement) {
+          finalPrompt = `[Movimiento de cámara: ${selectedCameraMovement}] Aplica este movimiento de cámara de acuerdo al flujo de Storytelling, destacando siempre la referencia visual provista como el eje principal y foco absoluto del video. Instrucción adicional: ${toolPrompt}`;
+        }
+        result = await generateVideoFromPrompt(finalPrompt, campaign.aspectRatio, base64, mime);
       }
 
       setToolResult(result);
+      if (['equirectangular_360', 'video_360'].includes(activeAssetTool)) {
+        setGenerated360Background(result);
+      }
     } catch (error) {
       console.error("Error executing tool:", error);
       alert("Error al procesar la solicitud IA.");
@@ -254,6 +348,10 @@ export default function App() {
   const clearTool = () => {
     setToolPrompt('');
     setToolResult(null);
+    setSelectedCameraMovement(null);
+    setElementFile(null);
+    setElementPreview(null);
+    setFixedResultVisual(null);
   };
 
   // Meta Ads State
@@ -310,6 +408,13 @@ export default function App() {
       return () => clearTimeout(timer);
     }
   }, [chatNotification]);
+
+  // Record the latest 360/VR tool visited by the user
+  useEffect(() => {
+    if (activeAssetTool === 'equirectangular_360' || activeAssetTool === 'video_360') {
+      setLast360Tool(activeAssetTool);
+    }
+  }, [activeAssetTool]);
 
   const userMenuRef = useRef<HTMLDivElement>(null);
 
@@ -727,6 +832,45 @@ export default function App() {
     } finally {
       setIsPublishing(false);
     }
+  };
+
+  const handlePublishVRAd = (imageUrl: string) => {
+    const prodName = campaign.productName || "nuestro producto";
+    const adPrompt = toolPrompt || "Escena inmersiva 360° de alta calidad";
+    
+    // Create an AdResult structure containing the 360 image and copywriting generated normally
+    const vrResult: AdResult = {
+      concept: `Anuncio VR Inmersivo 360°: ${adPrompt}`,
+      headline: campaign.productName ? `Explora ${campaign.productName} 360°` : "Experiencia Inmersiva VR 360°",
+      performanceScore: 94,
+      analysis: `Anuncio de alta retención optimizado para Meta Ads. El formato de realidad virtual 360° interactivo captura un 40% más de atención que las imágenes estáticas estándar.`,
+      generatedImageUrl: imageUrl,
+      captions: {
+        aida: {
+          attention: `¡Vive la experiencia interactiva en 360°! Explora ${prodName} desde adentro.`,
+          interest: `Gira tu móvil o arrastra el dedo en la pantalla para interactuar con esta simulación tridimensional única.`,
+          desire: `Creado con tecnología WebGL esférica equirrectangular para una inmersión publicitaria de gran impacto.`,
+          action: campaign.objective === 'WhatsApp' 
+            ? `Toca el botón para escribirnos por WhatsApp y recibir asesoramiento premium.` 
+            : `Haz clic abajo para descubrir todo sobre ${prodName} en nuestra web.`
+        },
+        storytelling: `Descubre una nueva forma de ver el mundo y el diseño. Con esta vista panorámica de 360°, eres el director de tu propio encuadre, explorando cada rincón interactivo de este escenario futurista.`,
+        urgency: `¡Disponible hoy! No dejes pasar la oportunidad de vivir el futuro de los anuncios digitales.`
+      }
+    };
+
+    setResults([vrResult]);
+    setSelectedResultIndex(0);
+    
+    setCampaign(prev => ({
+      ...prev,
+      format: 'image',
+    }));
+    
+    setPublishMode('single');
+    setPublishStep('config');
+    setShowPublishModal(true);
+    setChatNotification('¡Copiando imagen 360° y generando textos optimizados para Meta Ads!');
   };
 
   const executePublishBulk = async () => {
@@ -1531,9 +1675,10 @@ export default function App() {
     if (!optimizedVisual) return;
     
     setVisualPreview(optimizedVisual);
+    setFixedResultVisual(optimizedVisual);
     setShowStudioComparison(false);
     setOptimizedVisual(null);
-    setChatNotification('¡Optimización Aplicada! Ahora puedes generar tus anuncios con alta fidelidad.');
+    setChatNotification('¡Optimización Aplicada! Ahora puedes generar tus anuncios con alta fidelidad manteniendo este resultado de fondo.');
 
     // Deduct credits
     if (credits !== -1 && currentUser) {
@@ -1555,6 +1700,7 @@ export default function App() {
     const file = e.target.files?.[0];
     if (file) {
       setVisualFile(file);
+      setFixedResultVisual(null);
       const reader = new FileReader();
       reader.onloadend = () => {
         setVisualPreview(reader.result as string);
@@ -1675,7 +1821,8 @@ export default function App() {
         visualBase64,
         visualMimeType,
         variantsCount,
-        strategicPlan || undefined
+        strategicPlan || undefined,
+        fixedResultVisual || undefined
       );
       setResults(res);
       const count = res.length;
@@ -1787,6 +1934,13 @@ export default function App() {
         accept="image/*,video/*" 
         ref={fileInputRef} 
         onChange={handleVisualUpload} 
+        className="hidden" 
+      />
+      <input 
+        type="file" 
+        accept="image/*" 
+        ref={elementInputRef} 
+        onChange={handleElementUpload} 
         className="hidden" 
       />
       <input 
@@ -2197,13 +2351,13 @@ export default function App() {
 
             <div className="space-y-2">
               <label className="text-xs font-bold uppercase tracking-wider text-neon-blue">Relación de Aspecto</label>
-              <div className="grid grid-cols-3 gap-2">
-                {['1:1', '9:16', '16:9'].map(ratio => (
+              <div className="grid grid-cols-2 gap-2">
+                {['1:1', '9:16', '16:9', '2:1 (360°)'].map(ratio => (
                   <button 
                     key={ratio}
                     onClick={() => setCampaign({...campaign, aspectRatio: ratio})}
                     className={cn(
-                      "py-2 rounded-lg border text-xs transition-all",
+                      "py-2 rounded-lg border text-[11px] font-medium transition-all",
                       campaign.aspectRatio === ratio ? "border-neon-blue bg-neon-blue/10 text-neon-blue" : "border-white/10 hover:border-white/30"
                     )}
                   >
@@ -2418,7 +2572,7 @@ export default function App() {
                           className="w-full py-3 rounded-lg bg-neon-blue/10 border border-neon-blue/30 text-neon-blue font-orbitron text-[10px] font-black uppercase tracking-widest hover:bg-neon-blue hover:text-black transition-all flex items-center justify-center gap-2 group disabled:opacity-30"
                         >
                           {isAnalyzing ? <Cpu className="animate-spin" size={14} /> : <TrendingUp size={14} />}
-                          EJECUTAR ANÁLISIS (100 CRÉDITOS)
+                          EJECUTAR ANÁLISIS
                         </button>
                       </div>
                     ) : (
@@ -2505,77 +2659,94 @@ export default function App() {
                   </div>
 
                   {!strategicPlan ? (
-                    <div className="glass-panel p-8 border-neon-blue/20 bg-neon-blue/5 space-y-8 text-center">
-                      <div className="max-w-md mx-auto space-y-6">
-                        <div className="grid grid-cols-1 gap-4 text-left">
-                          <div className="space-y-4">
-                            <div className="space-y-2">
-                               <label className="text-[9px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Nombre del Producto / Servicio</label>
-                               <input 
-                                 type="text" 
-                                 value={campaign.productName}
-                                 onChange={(e) => setCampaign(prev => ({ ...prev, productName: e.target.value }))}
-                                 placeholder="Ej: Smart Watch X-1"
-                                 className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-xs text-white/80 focus:border-neon-blue outline-none font-orbitron"
-                               />
-                            </div>
+                    <div className="space-y-6">
+                      <div className="glass-panel p-8 border-neon-blue/20 bg-neon-blue/5 space-y-8 text-center">
+                        <div className="max-w-md mx-auto space-y-6">
+                          <div className="grid grid-cols-1 gap-4 text-left">
+                            <div className="space-y-4">
+                              <div className="space-y-2">
+                                 <label className="text-[9px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Nombre del Producto / Servicio</label>
+                                 <input 
+                                   type="text" 
+                                   value={campaign.productName}
+                                   onChange={(e) => setCampaign(prev => ({ ...prev, productName: e.target.value }))}
+                                   placeholder="Ej: Smart Watch X-1"
+                                   className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-xs text-white/80 focus:border-neon-blue outline-none font-orbitron"
+                                 />
+                              </div>
 
-                            <div className="space-y-2">
-                               <label className="text-[9px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Objetivo</label>
-                               <select 
-                                 value={campaign.objective}
-                                 onChange={(e) => setCampaign(prev => ({ ...prev, objective: e.target.value }))}
-                                 className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-xs text-white/80 focus:border-neon-blue outline-none font-orbitron"
-                               >
-                                 <option value="Ventas">Ventas</option>
-                                 <option value="Clientes Potenciales">Clientes Potenciales</option>
-                                 <option value="WhatsApp">WhatsApp</option>
-                               </select>
+                              <div className="space-y-2">
+                                 <label className="text-[9px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Objetivo</label>
+                                 <select 
+                                   value={campaign.objective}
+                                   onChange={(e) => setCampaign(prev => ({ ...prev, objective: e.target.value }))}
+                                   className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-xs text-white/80 focus:border-neon-blue outline-none font-orbitron"
+                                 >
+                                   <option value="Ventas">Ventas</option>
+                                   <option value="Clientes Potenciales">Clientes Potenciales</option>
+                                   <option value="WhatsApp">WhatsApp</option>
+                                 </select>
+                              </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                 <label className="text-[9px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Presupuesto Total</label>
+                                 <input 
+                                   type="number" 
+                                   value={campaign.budget}
+                                   onChange={(e) => setCampaign(prev => ({ ...prev, budget: e.target.value }))}
+                                   placeholder="500"
+                                   className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-xs text-white/80 focus:border-neon-blue outline-none font-orbitron"
+                                 />
+                              </div>
+                              <div className="space-y-2">
+                                 <label className="text-[9px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Moneda</label>
+                                 <select 
+                                   value={campaign.currency}
+                                   onChange={(e) => setCampaign(prev => ({ ...prev, currency: e.target.value }))}
+                                   className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-xs text-white/80 focus:border-neon-blue outline-none font-orbitron"
+                                 >
+                                   <option value="USD">USD</option>
+                                   <option value="COP">COP</option>
+                                   <option value="MXN">MXN</option>
+                                 </select>
+                              </div>
                             </div>
                           </div>
-                          
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                               <label className="text-[9px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Presupuesto Total</label>
-                               <input 
-                                 type="number" 
-                                 value={campaign.budget}
-                                 onChange={(e) => setCampaign(prev => ({ ...prev, budget: e.target.value }))}
-                                 placeholder="500"
-                                 className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-xs text-white/80 focus:border-neon-blue outline-none font-orbitron"
-                               />
-                            </div>
-                            <div className="space-y-2">
-                               <label className="text-[9px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Moneda</label>
-                               <select 
-                                 value={campaign.currency}
-                                 onChange={(e) => setCampaign(prev => ({ ...prev, currency: e.target.value }))}
-                                 className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-xs text-white/80 focus:border-neon-blue outline-none font-orbitron"
-                               >
-                                 <option value="USD">USD</option>
-                                 <option value="COP">COP</option>
-                                 <option value="MXN">MXN</option>
-                               </select>
-                            </div>
-                          </div>
+
+                          <button 
+                            onClick={handleExecuteStrategicPlan}
+                            disabled={isPlanning}
+                            className="w-full py-4 rounded-xl bg-neon-blue text-black font-black uppercase tracking-[0.2em] text-[10px] shadow-[0_0_20px_rgba(0,209,255,0.4)] hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+                          >
+                            {isPlanning ? (
+                              <>
+                                <RefreshCcw className="animate-spin" size={16} />
+                                PROCESANDO ESTRATEGIA...
+                              </>
+                            ) : (
+                              <>
+                                <Target size={16} />
+                                GENERAR PLAN ESTRATÉGICO
+                              </>
+                            )}
+                          </button>
                         </div>
+                      </div>
 
+                      {/* Deactivated button below the formulation form */}
+                      <div className="flex justify-center pt-2">
                         <button 
-                          onClick={handleExecuteStrategicPlan}
-                          disabled={isPlanning}
-                          className="w-full py-4 rounded-xl bg-neon-blue text-black font-black uppercase tracking-[0.2em] text-[10px] shadow-[0_0_20px_rgba(0,209,255,0.4)] hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+                          disabled={true}
+                          className="group flex flex-col items-center gap-3 transition-all opacity-30 grayscale cursor-not-allowed"
                         >
-                          {isPlanning ? (
-                            <>
-                              <RefreshCcw className="animate-spin" size={16} />
-                              PROCESANDO ESTRATEGIA...
-                            </>
-                          ) : (
-                            <>
-                              <Target size={16} />
-                              GENERAR PLAN ESTRATÉGICO
-                            </>
-                          )}
+                          <div className="w-12 h-12 rounded-full border border-white/10 bg-white/5 flex items-center justify-center transition-all shadow-[0_0_10px_rgba(255,255,255,0.02)]">
+                            <ChevronDown className="text-white/40 transition-colors" />
+                          </div>
+                          <span className="text-[8px] font-orbitron uppercase tracking-[0.4em] font-black text-white/20 transition-colors">
+                            Continuar a Crear Anuncios
+                          </span>
                         </button>
                       </div>
                     </div>
@@ -2909,6 +3080,37 @@ export default function App() {
                       >
                         O prefiero configurar los anuncios manualmente
                       </button>
+
+                      <div className="flex justify-center pt-6 border-t border-white/5">
+                        <button 
+                          onClick={() => {
+                            if (strategicPlan) {
+                              setActiveHomeTab('crear');
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
+                            }
+                          }}
+                          className={cn(
+                            "group flex flex-col items-center gap-3 transition-all",
+                            !strategicPlan ? "opacity-30 grayscale cursor-not-allowed" : "cursor-pointer"
+                          )}
+                        >
+                          <div className={cn(
+                            "w-12 h-12 rounded-full border flex items-center justify-center transition-all shadow-[0_0_10px_rgba(255,255,255,0.02)]",
+                            strategicPlan 
+                              ? "bg-neon-blue/10 border-neon-blue/50 group-hover:border-neon-blue/80 shadow-[0_0_15px_rgba(0,209,255,0.2)]" 
+                              : "bg-white/5 border-white/10"
+                          )}>
+                            <ChevronDown className={cn(
+                              "transition-colors",
+                              strategicPlan ? "text-neon-blue" : "text-white/40"
+                            )} />
+                          </div>
+                          <span className={cn(
+                            "text-[8px] font-orbitron uppercase tracking-[0.4em] font-black transition-colors",
+                            strategicPlan ? "text-neon-blue" : "text-white/20"
+                          )}>Continuar a Crear Anuncios</span>
+                        </button>
+                      </div>
                     </div>
                   )}
                 </motion.div>
@@ -2935,6 +3137,8 @@ export default function App() {
                         activeAssetTool === 'hub' ? 'CREAR ANUNCIOS' : 
                         activeAssetTool === 'campaign' ? 'CREAR ANUNCIO' : 
                         activeAssetTool === 'generate_img' ? 'CREAR IMÁGENES' :
+                        activeAssetTool === 'equirectangular_360' ? 'IMÁGENES 360°' :
+                        activeAssetTool === 'video_360' ? 'VIDEO VR 360°' :
                         activeAssetTool === 'product_img' ? 'ANUNCIOS DE PRODUCTOS' :
                         activeAssetTool === 'animate' ? 'ANUNCIO DE VIDEO' :
                         activeAssetTool === 'edit_img' ? 'EDITAR ANUNCIOS' :
@@ -2964,9 +3168,17 @@ export default function App() {
                       />
                       <AssetToolCard 
                         icon={<Package size={20} />}
-                        title="Anuncios de Productos"
-                        desc="Optimiza y cambia fondos para tus productos"
-                        onClick={() => setActiveAssetTool('product_img')}
+                        title="Product Studio"
+                        desc="Optimiza fondos y perfecciona tus fotos de producto con IA"
+                        onClick={() => {
+                          setActiveAssetTool('product_img');
+                        }}
+                      />
+                      <AssetToolCard 
+                        icon={<Box size={20} />}
+                        title="Modelado 3D"
+                        desc="Convierte imágenes planas en volúmenes 3D interactivos (.glb)"
+                        onClick={() => setActiveAssetTool('product_3d')}
                       />
                       <AssetToolCard 
                         icon={<Play size={20} />}
@@ -2986,6 +3198,21 @@ export default function App() {
                         desc="Crea y edita videos desde texto o clips"
                         onClick={() => setActiveAssetTool('video_gen')}
                       />
+                      <AssetToolCard 
+                        icon={<Globe size={20} />}
+                        title="Imágenes 360°"
+                        desc="Genera imágenes equirrectangulares panorámicas VR 360"
+                        onClick={() => setActiveAssetTool('equirectangular_360')}
+                      />
+                      <AssetToolCard 
+                        icon={<Video size={20} />}
+                        title="Video VR 360°"
+                        desc="Genera animaciones y videos panorámicos inmersivos VR 360"
+                        onClick={() => {
+                          setActiveAssetTool('video_360');
+                          setVr360FormatType('video');
+                        }}
+                      />
                     </div>
                   )}
 
@@ -3002,21 +3229,50 @@ export default function App() {
                             {
                               activeAssetTool === 'campaign' ? 'CREAR ANUNCIO' : 
                               activeAssetTool === 'generate_img' ? 'CREAR IMÁGENES' :
-                              activeAssetTool === 'product_img' ? 'ANUNCIOS DE PRODUCTOS' :
+                              activeAssetTool === 'equirectangular_360' ? 'IMÁGENES 360°' :
+                              activeAssetTool === 'video_360' ? 'VIDEO VR 360°' :
+                              activeAssetTool === 'product_img' ? 'PRODUCT STUDIO' :
+                              activeAssetTool === 'product_3d' ? 'MODELADO 3D' :
                               activeAssetTool === 'animate' ? 'ANUNCIO DE VIDEO' :
                               activeAssetTool === 'edit_img' ? 'EDITAR ANUNCIOS' :
                               activeAssetTool === 'video_gen' ? 'VIDEO STUDIO' :
                               activeAssetTool.toUpperCase().replace('_', ' ')
                             }
                           </h3>
-                          <p className="text-[10px] text-white/40 uppercase tracking-widest mt-1">Potenciando tu creatividad con inteligencia neural</p>
+                          <p className="text-[10px] text-white/40 uppercase tracking-widest mt-1">
+                            {activeAssetTool === 'product_3d' 
+                              ? 'Convierte imágenes de producto en elementos volumétricos 3D interactivos (.glb)' 
+                              : 'Potenciando tu creatividad con inteligencia neural'}
+                          </p>
                         </div>
                         <div className="w-12 h-12 rounded-full border border-neon-blue/20 flex items-center justify-center">
                           <Cpu className={cn("text-neon-blue", (isToolProcessing || isProcessing) && "animate-spin")} size={24} />
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 py-6">
+                      {activeAssetTool === 'product_3d' ? (
+                        <div className="py-6 border-t border-white/5 mt-4">
+                          <Product3DModeler 
+                            initialImage={visualPreview} 
+                            productName={campaign.productName || "Producto"}
+                            background360Url={generated360Background}
+                            onPreviewCreated={(img) => {
+                              setVisualPreview(img);
+                              setOptimizedVisual(img);
+                            }}
+                            onApplyAsElement={(elemUrl) => {
+                              setElementPreview(elemUrl);
+                              setVr360InsertType('3d_model'); // default load as real high-quality 3D model
+                              setChatNotification('¡Modelo de Producto 3D acoplado con simulación física inmersiva!');
+                            }}
+                            onRedirectToEnvironment={() => {
+                              setActiveAssetTool(last360Tool);
+                              setShowVRViewer(true);
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 py-6">
                         <div className="space-y-6">
                           <div className="flex items-center justify-between">
                             <h4 className="font-orbitron text-xs font-bold text-neon-blue uppercase">Configuración de Generación</h4>
@@ -3030,42 +3286,553 @@ export default function App() {
                             )}
                           </div>
                           
-                          {/* Visual Core Upload - Only for tools that use reference */}
-                          {!['generate_img'].includes(activeAssetTool) && (
-                            <div className="space-y-2">
-                              <label className="text-[9px] text-white/30 uppercase tracking-widest font-bold">Núcleo Visual (Referencia)</label>
-                              <div 
-                                onClick={() => !isProcessing && !isToolProcessing && !isStudioProcessing && fileInputRef.current?.click()}
+
+
+                          {/* Sub-tab Selection for Editar Anuncios */}
+                          {activeAssetTool === 'edit_img' && (
+                            <div className="flex border-b border-white/5 pb-2 gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setEditMode('modify')}
                                 className={cn(
-                                  "w-full aspect-video rounded-xl border border-dashed flex flex-col items-center justify-center cursor-pointer group transition-all relative overflow-hidden bg-black/40",
-                                  visualPreview ? "border-neon-blue/40" : "border-white/10 hover:border-neon-blue/30"
+                                  "flex-1 py-1.5 rounded-lg text-[10px] uppercase font-bold tracking-wider font-orbitron transition-all",
+                                  editMode === 'modify'
+                                    ? "bg-neon-blue text-black shadow-[0_0_10px_rgba(0,209,255,0.2)]"
+                                    : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white"
                                 )}
                               >
-                                {visualPreview ? (
-                                  <>
-                                    <img src={visualPreview} className="w-full h-full object-cover" />
-                                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                      <RefreshCcw className="text-white" size={24} />
+                                Edición IA (Texto)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditMode('add_elements')}
+                                className={cn(
+                                  "flex-1 py-1.5 rounded-lg text-[10px] uppercase font-bold tracking-wider font-orbitron transition-all flex items-center justify-center gap-1",
+                                  editMode === 'add_elements'
+                                    ? "bg-neon-blue text-black shadow-[0_0_10px_rgba(0,209,255,0.2)]"
+                                    : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white"
+                                )}
+                              >
+                                <Plus size={10} /> Agregar Elementos
+                              </button>
+                            </div>
+                          )}
+
+                          {activeAssetTool === 'edit_img' && editMode === 'add_elements' ? (
+                            <div className="space-y-4">
+                              {/* Element Upload Card */}
+                              <div className="space-y-2 border border-neon-blue/20 bg-neon-blue/5 p-4 rounded-xl">
+                                <div className="flex items-center justify-between">
+                                  <label className="text-[9px] text-neon-blue uppercase tracking-widest font-black flex items-center gap-1">
+                                    <PlusCircle size={10} /> 1. Elemento a Agregar
+                                  </label>
+                                  {elementPreview && (
+                                    <button
+                                      type="button"
+                                      onClick={() => { setElementFile(null); setElementPreview(null); }}
+                                      className="text-[8px] text-red-400 hover:text-red-300 uppercase tracking-widest font-bold font-orbitron"
+                                    >
+                                      Quitar
+                                    </button>
+                                  )}
+                                </div>
+                                <div
+                                  onClick={() => !isProcessing && !isToolProcessing && elementInputRef.current?.click()}
+                                  className={cn(
+                                    "w-full aspect-video rounded-lg border border-dashed flex flex-col items-center justify-center cursor-pointer group transition-all relative overflow-hidden bg-black/50",
+                                    elementPreview ? "border-neon-blue/60" : "border-white/10 hover:border-neon-blue/30"
+                                  )}
+                                >
+                                  {elementPreview ? (
+                                    <>
+                                      <img src={elementPreview} className="w-full h-full object-contain" />
+                                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                        <RefreshCcw className="text-white" size={18} />
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <div className="text-center space-y-1 p-4">
+                                      <Upload className="mx-auto text-neon-blue/60 animate-pulse animate-bounce" size={18} />
+                                      <p className="text-[9px] text-white/50 uppercase font-black tracking-wider">Subir Elemento Visual</p>
+                                      <p className="text-[7px] text-white/30 uppercase tracking-widest leading-relaxed">PNG transparente, Producto o Imagen</p>
                                     </div>
-                                    {(isProcessing || isToolProcessing || isStudioProcessing) && <div className="laser-scan" />}
-                                  </>
-                                ) : (
-                                  <div className="text-center space-y-2">
-                                    <Upload className="mx-auto text-white/20" size={24} />
-                                    <p className="text-[9px] text-white/40 uppercase font-bold tracking-widest">Subir Imagen o Video</p>
-                                  </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Target Selection */}
+                              <div className="space-y-2">
+                                <label className="text-[9px] text-white/30 uppercase tracking-widest font-bold flex items-center gap-1">
+                                  2. Seleccionar Imagen Base / Fondo
+                                </label>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setElementTarget('base')}
+                                    className={cn(
+                                      "p-2 rounded-lg border text-left flex flex-col justify-between transition-all aspect-video",
+                                      elementTarget === 'base'
+                                        ? "bg-neon-blue/10 border-neon-blue text-neon-blue shadow-[0_0_10px_rgba(0,209,255,0.05)]"
+                                        : "bg-black/30 border-white/5 text-white/70 hover:border-white/10"
+                                    )}
+                                  >
+                                    <span className="font-orbitron text-[8px] uppercase tracking-wider block font-bold">Imagen Base</span>
+                                    {visualPreview ? (
+                                      <img src={visualPreview} className="w-12 h-8 object-cover rounded border border-white/10 mt-1" />
+                                    ) : (
+                                      <span className="text-[7px] text-white/30 uppercase block mt-1">Sin cargar</span>
+                                    )}
+                                  </button>
+                                  
+                                  <button
+                                    type="button"
+                                    disabled={!toolResult && !results[selectedResultIndex]?.generatedImageUrl}
+                                    onClick={() => setElementTarget('result')}
+                                    className={cn(
+                                      "p-2 rounded-lg border text-left flex flex-col justify-between transition-all aspect-video disabled:opacity-40 disabled:cursor-not-allowed",
+                                      elementTarget === 'result'
+                                        ? "bg-neon-blue/10 border-neon-blue text-neon-blue shadow-[0_0_10px_rgba(0,209,255,0.05)]"
+                                        : "bg-black/30 border-white/5 text-white/70 hover:border-white/10"
+                                    )}
+                                  >
+                                    <span className="font-orbitron text-[8px] uppercase tracking-wider block font-bold">Resultado Anuncio</span>
+                                    {(toolResult || results[selectedResultIndex]?.generatedImageUrl) ? (
+                                      <img src={toolResult || results[selectedResultIndex]?.generatedImageUrl} className="w-12 h-8 object-cover rounded border border-white/10 mt-1" />
+                                    ) : (
+                                      <span className="text-[7px] text-white/30 uppercase block mt-1">No generado</span>
+                                    )}
+                                  </button>
+                                </div>
+                                {elementTarget === 'base' && !visualPreview && (
+                                  <button
+                                    type="button"
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="w-full mt-2 py-2 border border-dashed border-white/20 rounded-lg text-white/50 hover:text-white uppercase text-[8px] font-bold tracking-widest flex items-center justify-center gap-1.5"
+                                  >
+                                    <Upload size={10} /> Subir Imagen Base de Fondo
+                                  </button>
                                 )}
                               </div>
-                              {visualPreview && !isProcessing && !isToolProcessing && !visualFile?.type.includes('video') && (
-                                <button 
-                                  onClick={handleProductStudioRefine}
-                                  disabled={isStudioProcessing}
-                                  className="w-full py-2 rounded-lg bg-neon-blue/10 border border-neon-blue/20 text-neon-blue text-[9px] font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-neon-blue hover:text-black transition-all"
+
+                              {/* Manual Placement Slider Card */}
+                              <div className="space-y-3 bg-white/5 p-4 rounded-xl border border-white/5">
+                                <label className="text-[9px] text-white/30 uppercase tracking-widest font-bold flex items-center gap-1">
+                                  3. Ajustes de Composición Visual (Manual)
+                                </label>
+                                
+                                <div className="space-y-2">
+                                  <div>
+                                    <div className="flex justify-between text-[8px] text-white/50 uppercase font-bold mb-1">
+                                      <span>Posición Horizontal (X):</span>
+                                      <span className="text-neon-blue">{elementX}%</span>
+                                    </div>
+                                    <input
+                                      type="range"
+                                      min="0"
+                                      max="100"
+                                      value={elementX}
+                                      onChange={(e) => setElementX(Number(e.target.value))}
+                                      className="w-full h-1 bg-black/40 rounded-lg appearance-none cursor-pointer"
+                                      style={{ accentColor: "var(--neon-blue, #00d1ff)" }}
+                                    />
+                                  </div>
+
+                                  <div>
+                                    <div className="flex justify-between text-[8px] text-white/50 uppercase font-bold mb-1">
+                                      <span>Posición Vertical (Y):</span>
+                                      <span className="text-neon-blue">{elementY}%</span>
+                                    </div>
+                                    <input
+                                      type="range"
+                                      min="0"
+                                      max="100"
+                                      value={elementY}
+                                      onChange={(e) => setElementY(Number(e.target.value))}
+                                      className="w-full h-1 bg-black/40 rounded-lg appearance-none cursor-pointer"
+                                      style={{ accentColor: "var(--neon-blue, #00d1ff)" }}
+                                    />
+                                  </div>
+
+                                  <div>
+                                    <div className="flex justify-between text-[8px] text-white/50 uppercase font-bold mb-1">
+                                      <span>Tamaño de Escala:</span>
+                                      <span className="text-neon-blue">{elementScale}%</span>
+                                    </div>
+                                    <input
+                                      type="range"
+                                      min="5"
+                                      max="100"
+                                      value={elementScale}
+                                      onChange={(e) => setElementScale(Number(e.target.value))}
+                                      className="w-full h-1 bg-black/40 rounded-lg appearance-none cursor-pointer"
+                                      style={{ accentColor: "var(--neon-blue, #00d1ff)" }}
+                                    />
+                                  </div>
+
+                                  <div>
+                                    <div className="flex justify-between text-[8px] text-white/50 uppercase font-bold mb-1">
+                                      <span>Opacidad / Fusión:</span>
+                                      <span className="text-neon-blue">{elementOpacity}%</span>
+                                    </div>
+                                    <input
+                                      type="range"
+                                      min="10"
+                                      max="100"
+                                      value={elementOpacity}
+                                      onChange={(e) => setElementOpacity(Number(e.target.value))}
+                                      className="w-full h-1 bg-black/40 rounded-lg appearance-none cursor-pointer"
+                                      style={{ accentColor: "var(--neon-blue, #00d1ff)" }}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            /* Visual Core Upload - Only for tools that use reference or optional for generate_img */
+                            (
+                              <div className="space-y-2">
+                                <label className="text-[9px] text-white/30 uppercase tracking-widest font-bold">
+                                  {['generate_img', 'equirectangular_360', 'video_360'].includes(activeAssetTool) ? 'Referencia Visual (Opcional)' : 'Núcleo Visual (Referencia)'}
+                                </label>
+                                <div 
+                                  onClick={() => !isProcessing && !isToolProcessing && !isStudioProcessing && fileInputRef.current?.click()}
+                                  className={cn(
+                                    "w-full aspect-video rounded-xl border border-dashed flex flex-col items-center justify-center cursor-pointer group transition-all relative overflow-hidden bg-black/40",
+                                    visualPreview ? "border-neon-blue/40" : "border-white/10 hover:border-neon-blue/30"
+                                  )}
                                 >
-                                  {isStudioProcessing ? <Cpu className="animate-spin" size={12} /> : <Sparkles size={12} />}
-                                  OPTIMIZAR CON PRODUCT STUDIO
-                                </button>
+                                  {visualPreview ? (
+                                    <>
+                                      <img src={visualPreview} className="w-full h-full object-cover" />
+                                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                        <RefreshCcw className="text-white" size={24} />
+                                      </div>
+                                      {(isProcessing || isToolProcessing || isStudioProcessing) && <div className="laser-scan" />}
+                                    </>
+                                  ) : (
+                                    <div className="text-center space-y-2">
+                                      <Upload className="mx-auto text-white/20" size={24} />
+                                      <p className="text-[9px] text-white/40 uppercase font-bold tracking-widest">Subir Imagen o Video</p>
+                                    </div>
+                                  )}
+                                </div>
+                                {visualPreview && !isProcessing && !isToolProcessing && !['generate_img', 'equirectangular_360', 'video_360'].includes(activeAssetTool) && !visualFile?.type.includes('video') && (
+                                  <button 
+                                    onClick={handleProductStudioRefine}
+                                    disabled={isStudioProcessing}
+                                    className="w-full py-2 rounded-lg bg-neon-blue/10 border border-neon-blue/20 text-neon-blue text-[9px] font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-neon-blue hover:text-black transition-all"
+                                  >
+                                    {isStudioProcessing ? <Cpu className="animate-spin" size={12} /> : <Sparkles size={12} />}
+                                    OPTIMIZAR CON PRODUCT STUDIO
+                                  </button>
+                                )}
+                              </div>
+                            )
+                          )}
+
+                          {['equirectangular_360', 'video_360'].includes(activeAssetTool) && (
+                            <div className="space-y-4 border-t border-white/5 pt-4">
+                              {activeAssetTool !== 'video_360' && (
+                                <>
+                                  <div className="flex items-center gap-2">
+                                    <Globe className="text-neon-blue animate-pulse" size={14} />
+                                    <label className="text-[10px] font-orbitron text-white uppercase tracking-[0.15em] font-black">
+                                      TIPO DE FORMATO EN 360°
+                                    </label>
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setVr360FormatType('image')}
+                                      className={cn(
+                                        "flex-1 py-2 rounded-lg text-[9px] uppercase font-bold tracking-wider font-orbitron transition-all flex items-center justify-center gap-1.5",
+                                        vr360FormatType === 'image'
+                                          ? "bg-neon-blue text-black shadow-[0_0_10px_rgba(0,209,255,0.2)]"
+                                          : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white"
+                                      )}
+                                    >
+                                      <ImageIcon size={10} /> Imagen 360°
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setVr360FormatType('video')}
+                                      className={cn(
+                                        "flex-1 py-2 rounded-lg text-[9px] uppercase font-bold tracking-wider font-orbitron transition-all flex items-center justify-center gap-1.5",
+                                        vr360FormatType === 'video'
+                                          ? "bg-neon-blue text-black shadow-[0_0_10px_rgba(0,209,255,0.2)]"
+                                          : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white"
+                                      )}
+                                    >
+                                      <Video size={10} /> Video 360°
+                                    </button>
+                                  </div>
+                                </>
                               )}
+
+                              {(activeAssetTool === 'video_360' || vr360FormatType === 'video') && (
+                                <motion.div
+                                  initial={{ opacity: 0, y: -5 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  className="space-y-4 pt-2"
+                                >
+                                  {/* Duration selector */}
+                                  <div>
+                                    <div className="flex justify-between text-[8px] text-white/50 uppercase font-bold mb-1.5">
+                                      <span>Duración del Video 360°:</span>
+                                    </div>
+                                    <div className="flex gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => setVr360VideoDuration(5)}
+                                        className={cn(
+                                          "flex-1 py-1.5 rounded-lg text-[9px] font-bold font-orbitron transition-all border",
+                                          vr360VideoDuration === 5
+                                            ? "border-neon-blue bg-neon-blue/10 text-neon-blue font-black"
+                                            : "border-white/5 bg-black/20 text-white/50 hover:border-white/20"
+                                        )}
+                                      >
+                                        5 SEGUNDOS
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setVr360VideoDuration(10)}
+                                        className={cn(
+                                          "flex-1 py-1.5 rounded-lg text-[9px] font-bold font-orbitron transition-all border",
+                                          vr360VideoDuration === 10
+                                            ? "border-neon-blue bg-neon-blue/10 text-neon-blue font-black"
+                                            : "border-white/5 bg-black/20 text-white/50 hover:border-white/20"
+                                        )}
+                                      >
+                                        10 SEGUNDOS
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {/* Camera movement selection */}
+                                  <div className="space-y-2 border-t border-white/5 pt-3">
+                                    <div className="flex justify-between text-[8px] text-white/50 uppercase font-bold">
+                                      <span>Movimiento de Cámara (Opcional):</span>
+                                      {selectedCameraMovement && (
+                                        <button
+                                          type="button"
+                                          onClick={() => setSelectedCameraMovement(null)}
+                                          className="text-[8px] text-red-400 hover:text-red-300 transition-colors uppercase font-bold font-orbitron"
+                                        >
+                                          Restaurar
+                                        </button>
+                                      )}
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1 custom-scrollbar">
+                                      {CAMERA_MOVEMENTS.map((movement) => {
+                                        const isSelected = selectedCameraMovement === movement.name;
+                                        return (
+                                          <button
+                                            key={movement.name}
+                                            type="button"
+                                            onClick={() => setSelectedCameraMovement(isSelected ? null : movement.name)}
+                                            className={cn(
+                                              "flex flex-col text-left p-2 rounded-lg border transition-all relative overflow-hidden group/item",
+                                              isSelected 
+                                                ? "bg-neon-blue/10 border-neon-blue text-neon-blue shadow-[0_0_10px_rgba(0,209,255,0.15)]" 
+                                                : "bg-black/30 border-white/5 text-white/70 hover:border-white/20 hover:bg-black/40"
+                                            )}
+                                          >
+                                            <span className="font-orbitron text-[8.5px] uppercase tracking-wider block font-bold transition-colors">
+                                              {movement.name}
+                                            </span>
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                </motion.div>
+                              )}
+
+                              {/* Option to Add 3D Element (modelado 3D) */}
+                              <div className="space-y-3 border-t border-white/5 pt-4">
+                                <div className="flex items-center gap-2">
+                                  <Box className="text-neon-blue animate-pulse" size={14} />
+                                  <label className="text-[10px] font-orbitron text-white uppercase tracking-[0.15em] font-black">
+                                    INSERTAR ELEMENTO EN 3D
+                                  </label>
+                                </div>
+                                <p className="text-[8px] text-white/50 uppercase tracking-widest leading-normal">
+                                  Configura un modelado 3D para pre-cargarlo en tu entorno panorámico inmersivo.
+                                </p>
+                                
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setVr360InsertType('none')}
+                                    className={cn(
+                                      "flex-1 py-1.5 rounded-lg text-[9px] uppercase font-bold tracking-wider transition-all",
+                                      vr360InsertType === 'none'
+                                        ? "bg-neon-blue text-black font-black"
+                                        : "bg-white/5 text-white/50 hover:bg-white/10"
+                                    )}
+                                  >
+                                    Ninguno
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setVr360InsertType('3d_model')}
+                                    className={cn(
+                                      "flex-1 py-1.5 rounded-lg text-[9px] uppercase font-bold tracking-wider transition-all",
+                                      vr360InsertType === '3d_model'
+                                        ? "bg-neon-blue text-black font-black shadow-[0_0_10px_rgba(0,209,255,0.2)]"
+                                        : "bg-white/5 text-white/50 hover:bg-white/10"
+                                    )}
+                                  >
+                                    Cargar Modelo 3D
+                                  </button>
+                                </div>
+
+                                {vr360InsertType === '3d_model' && (
+                                  <motion.div
+                                    initial={{ opacity: 0, height: 0 }}
+                                    animate={{ opacity: 1, height: 'auto' }}
+                                    className="space-y-3 pt-2 bg-white/5 rounded-xl p-3 border border-white/5"
+                                  >
+                                    {/* Upload/Selection of 3D Product Image instead of basic Geometría */}
+                                    <div className="space-y-2">
+                                      <label className="text-[8.5px] text-neon-blue uppercase tracking-widest font-black block">Modelo de Producto 3D (.glb / Imagen de Textura)</label>
+                                      
+                                      {elementPreview ? (
+                                        <div className="border border-neon-blue/20 bg-neon-blue/5 rounded-lg p-2.5 flex items-center gap-3">
+                                          <div className="w-12 h-12 rounded-md bg-black/40 border border-white/10 flex-shrink-0 overflow-hidden flex items-center justify-center">
+                                            <img src={elementPreview} className="w-full h-full object-contain" alt="Producto 3D" />
+                                          </div>
+                                          <div className="flex-1 min-w-0">
+                                            <span className="text-[9px] font-bold text-white uppercase block truncate">
+                                              {campaign.productName || "Producto Modelado Activo"}
+                                            </span>
+                                            <span className="text-[7.5px] text-neon-blue uppercase tracking-wider block font-bold mt-0.5">
+                                              ✨ Listo para renderizado volumétrico
+                                            </span>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => setElementPreview(null)}
+                                            className="text-[8px] text-white/40 hover:text-red-400 font-bold uppercase tracking-wider px-2 py-1 rounded bg-white/5"
+                                          >
+                                            Quitar
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <div className="border border-dashed border-white/10 hover:border-neon-blue/30 bg-black/20 rounded-lg p-4 text-center space-y-2 transition-all">
+                                          <p className="text-[8px] text-white/50 uppercase tracking-wider leading-relaxed">
+                                            No hay ningún modelo cargado todavía. Puedes modelarlo con Inteligencia Neural de inmediato.
+                                          </p>
+                                          <div className="flex justify-center gap-2 pt-1">
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setActiveAssetTool('product_3d');
+                                                setChatNotification('¡Carga o selecciona tu foto y actívala con el panel de la derecha para modelarla en 3D!');
+                                              }}
+                                              className="px-2.5 py-1.5 rounded bg-neon-blue text-black font-black uppercase text-[8px] tracking-wider hover:scale-105 transition-all"
+                                            >
+                                              Ir a Modelado 3D
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                const input = document.createElement('input');
+                                                input.type = 'file';
+                                                input.accept = 'image/*';
+                                                input.onchange = (e: any) => {
+                                                  const file = e.target.files?.[0];
+                                                  if (file) {
+                                                    const reader = new FileReader();
+                                                    reader.onload = () => {
+                                                      setElementPreview(reader.result as string);
+                                                      setChatNotification('¡Modelo de producto 3D cargado con éxito!');
+                                                    };
+                                                    reader.readAsDataURL(file);
+                                                  }
+                                                };
+                                                input.click();
+                                              }}
+                                              className="px-2.5 py-1.5 rounded bg-white/5 hover:bg-white/10 text-white font-bold uppercase text-[8px] tracking-wider border border-white/10 hover:border-white/20 transition-all"
+                                            >
+                                              Subir Archivo
+                                            </button>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <div>
+                                        <label className="text-[8px] text-white/40 uppercase tracking-widest font-bold block mb-1">Color de Relleno</label>
+                                        <select
+                                          value={vr360Model3DColor}
+                                          onChange={(e) => setVr360Model3DColor(e.target.value)}
+                                          className="w-full bg-black/60 border border-white/10 rounded px-2 py-1 text-[9px] text-white outline-none focus:border-neon-blue"
+                                        >
+                                          <option value="#00d1ff">Cian Neón</option>
+                                          <option value="#34d399">Esmeralda</option>
+                                          <option value="#f43f5e">Rosa Neón</option>
+                                          <option value="#f59e0b">Ámbar</option>
+                                          <option value="#a855f7">Púrpura</option>
+                                          <option value="#ffffff">Blanco Pure</option>
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <label className="text-[8px] text-white/40 uppercase tracking-widest font-bold block mb-1">Acabado 3D</label>
+                                        <select
+                                          value={vr360Model3DStyle}
+                                          onChange={(e) => setVr360Model3DStyle(e.target.value as any)}
+                                          className="w-full bg-black/60 border border-white/10 rounded px-2 py-1 text-[9px] text-white outline-none focus:border-neon-blue"
+                                        >
+                                          <option value="wireframe">Estructura alámbrica</option>
+                                          <option value="solid">Sólido brillante</option>
+                                          <option value="glowing">Brillo de contorno</option>
+                                        </select>
+                                      </div>
+                                    </div>
+                                  </motion.div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {['animate', 'video_gen'].includes(activeAssetTool) && (
+                            <div className="space-y-3 border-t border-b border-white/5 py-4">
+                              <div className="flex items-center gap-2">
+                                <Video className="text-neon-blue animate-pulse" size={14} />
+                                <label className="text-[10px] font-orbitron text-white uppercase tracking-[0.15em] font-black">
+                                  MOVIMIENTO DE CÁMARA IA (VIDEO)
+                                </label>
+                              </div>
+                              <p className="text-[8px] text-white/50 leading-relaxed uppercase tracking-wider">
+                                Aplica el movimiento cinematográfico de acuerdo al Storytelling, adaptándose con precisión quirúrgica y con la referencia visual como foco central.
+                              </p>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-52 overflow-y-auto pr-1 custom-scrollbar">
+                                {CAMERA_MOVEMENTS.map((movement) => {
+                                  const isSelected = selectedCameraMovement === movement.name;
+                                  return (
+                                    <button
+                                      key={movement.name}
+                                      type="button"
+                                      onClick={() => setSelectedCameraMovement(isSelected ? null : movement.name)}
+                                      className={cn(
+                                        "flex flex-col text-left p-2.5 rounded-lg border transition-all relative overflow-hidden group/item",
+                                        isSelected 
+                                          ? "bg-neon-blue/10 border-neon-blue text-neon-blue shadow-[0_0_15px_rgba(0,209,255,0.15)]" 
+                                          : "bg-black/30 border-white/5 text-white/70 hover:border-white/20 hover:bg-black/40"
+                                      )}
+                                    >
+                                      <span className="font-orbitron text-[9px] uppercase tracking-wider block font-bold group-hover/item:text-neon-blue transition-colors">
+                                        {movement.name}
+                                      </span>
+                                      <span className="text-[8px] text-white/40 block mt-1 uppercase font-normal tracking-wide leading-normal">
+                                        {movement.desc}
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
                             </div>
                           )}
 
@@ -3089,6 +3856,7 @@ export default function App() {
                                 onChange={(e) => activeAssetTool === 'campaign' ? setCampaign({...campaign, instruction: e.target.value}) : setToolPrompt(e.target.value)}
                                 placeholder={
                                   activeAssetTool === 'generate_img' ? "Describe la imagen que quieres crear..." :
+                                  ['equirectangular_360', 'video_360'].includes(activeAssetTool) ? "Describe la escena equirrectangular panorámica VR 360° que quieres crear..." :
                                   activeAssetTool === 'campaign' ? "Describe detalles técnicos o visuales adicionales para estas variantes..." :
                                   activeAssetTool === 'animate' ? "Describe el movimiento o animación deseada..." :
                                   "Describe el resultado esperado..."
@@ -3120,36 +3888,159 @@ export default function App() {
                                <p className="text-[10px] text-neon-blue animate-pulse uppercase tracking-[0.2em] font-bold">Generando Visual...</p>
                                <p className="text-[8px] text-white/40 uppercase tracking-widest">El motor neuronal está trabajando en tu pieza</p>
                              </div>
-                           ) : (toolResult || (activeAssetTool === 'campaign' && results.length > 0)) ? (
-                             <>
-                               {toolResult?.startsWith('data:video') || (activeAssetTool === 'campaign' && results[selectedResultIndex]?.generatedImageUrl?.startsWith('data:video')) ? (
-                                 <video 
-                                   src={toolResult || results[selectedResultIndex].generatedImageUrl} 
-                                   autoPlay 
-                                   loop 
-                                   muted 
-                                   playsInline 
-                                   className="w-full h-full object-cover" 
-                                 />
-                               ) : (
-                                 <img 
-                                   src={toolResult || results[selectedResultIndex]?.generatedImageUrl} 
-                                   className="w-full h-full object-cover" 
-                                 />
-                               )}
-                               <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/80 to-transparent translate-y-full group-hover:translate-y-0 transition-transform">
-                                  <button 
-                                    onClick={() => {
-                                      const url = toolResult || results[selectedResultIndex].generatedImageUrl;
-                                      const link = document.createElement('a');
-                                      link.href = url;
-                                      link.download = `smart-ads-preview-${Date.now()}.${url.startsWith('data:video') ? 'mp4' : 'png'}`;
-                                      link.click();
+                           ) : activeAssetTool === 'edit_img' && editMode === 'add_elements' ? (
+                              <div className="relative w-full h-full min-h-[350px] flex items-center justify-center bg-black/40 overflow-hidden">
+                                {/* The Destination BG */}
+                                {(() => {
+                                  const renderUrl = elementTarget === 'result' 
+                                    ? (toolResult || results[selectedResultIndex]?.generatedImageUrl)
+                                    : visualPreview;
+
+                                  if (renderUrl) {
+                                    return <img src={renderUrl} className="w-full h-full object-contain max-h-[450px]" alt="Composición Base" />;
+                                  } else {
+                                    return (
+                                      <div className="text-center p-8">
+                                        <ImageIcon className="mx-auto text-white/10 mb-2 animate-pulse" size={40} />
+                                        <p className="text-[10px] text-white/40 uppercase font-bold tracking-widest font-orbitron">Selecciona o sube una Imagen Base de Fondo</p>
+                                        <p className="text-[8px] text-white/30 uppercase tracking-widest mt-1">Sube la referencia en el paso anterior</p>
+                                      </div>
+                                    );
+                                  }
+                                })()}
+
+                                {/* The Overlay Element representation */}
+                                {elementPreview && (
+                                  <div 
+                                    className="absolute border border-dashed border-neon-blue/50 group-hover:border-neon-blue transition-colors duration-75 select-none"
+                                    style={{
+                                      left: `${elementX}%`,
+                                      top: `${elementY}%`,
+                                      width: `${elementScale}%`,
+                                      transform: 'translate(-50%, -50%)',
+                                      opacity: elementOpacity / 100,
                                     }}
-                                    className="w-full py-2 bg-neon-blue text-black text-[10px] font-bold uppercase rounded-lg"
                                   >
-                                    Descargar Resultado
-                                  </button>
+                                    <img src={elementPreview} className="w-full h-full object-contain pointer-events-none" alt="Elemento flotante" />
+                                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-black/80 px-1 py-0.5 rounded text-[6px] font-mono text-neon-blue whitespace-nowrap uppercase tracking-widest leading-none">
+                                      {elementScale}% Escala
+                                    </div>
+                                  </div>
+                                )}
+                                
+                                <div className="absolute top-3 left-3 bg-black/80 border border-neon-blue/20 rounded-lg px-2 py-1 flex items-center gap-1.5 backdrop-blur-md">
+                                  <div className="w-1.5 h-1.5 bg-neon-blue rounded-full animate-ping" />
+                                  <span className="text-[7px] text-white/70 font-orbitron uppercase tracking-widest font-bold">Composición En Vivo</span>
+                                </div>
+
+                                {toolResult && (
+                                  <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/80 to-transparent translate-y-full group-hover:translate-y-0 transition-transform flex flex-col gap-2">
+                                    <button 
+                                      onClick={() => {
+                                        const url = toolResult;
+                                        const link = document.createElement('a');
+                                        link.href = url;
+                                        link.download = `smart-ads-composed-${Date.now()}.png`;
+                                        link.click();
+                                      }}
+                                      className="w-full py-2 bg-neon-blue text-black text-[10px] font-bold uppercase rounded-lg"
+                                    >
+                                      Descargar Resultado Fusionado
+                                    </button>
+                                    <button 
+                                      onClick={() => {
+                                        setFixedResultVisual(toolResult);
+                                        setVisualPreview(toolResult);
+                                        setChatNotification('¡Se usará este resultado generado para el anuncio final! No se regenerará el contenido audiovisual.');
+                                      }}
+                                      className={cn(
+                                        "w-full py-2 text-[10px] uppercase font-bold rounded-lg transition-all flex items-center justify-center gap-1.5",
+                                        fixedResultVisual === toolResult
+                                          ? "bg-emerald-500 text-white"
+                                          : "bg-white/10 text-white hover:bg-white/20 border border-white/10"
+                                      )}
+                                    >
+                                      {fixedResultVisual === toolResult ? "✓ Usando como Referencia" : "Usar resultado como referencia"}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (toolResult || (activeAssetTool === 'campaign' && results.length > 0) || (['equirectangular_360', 'video_360'].includes(activeAssetTool) && visualPreview)) ? (
+                              <>
+                                <div className="relative w-full h-full min-h-[350px] flex items-center justify-center">
+                                  {toolResult?.startsWith('data:video') || (activeAssetTool === 'campaign' && results[selectedResultIndex]?.generatedImageUrl?.startsWith('data:video')) ? (
+                                    <video 
+                                      src={toolResult || results[selectedResultIndex].shadowImageUrl || results[selectedResultIndex].generatedImageUrl} 
+                                      autoPlay 
+                                      loop 
+                                      muted 
+                                      playsInline 
+                                      className="w-full h-full object-cover" 
+                                    />
+                                  ) : (
+                                    <img 
+                                      src={toolResult || results[selectedResultIndex]?.generatedImageUrl || visualPreview || undefined} 
+                                      className="w-full h-full object-cover" 
+                                    />
+                                  )}
+
+                                  {['equirectangular_360', 'video_360'].includes(activeAssetTool) && !showVRViewer && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setShowVRViewer(true);
+                                        setChatNotification('¡Cargando simulador inmersivo VR 360° con renderizado esférico WebGL!');
+                                      }}
+                                      className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 py-3 px-6 bg-black/85 text-white text-[10px] font-bold uppercase rounded-xl border border-neon-blue/40 shadow-[0_0_30px_rgba(0,209,255,0.4)] hover:scale-105 transition-all flex items-center justify-center gap-2 backdrop-blur-md z-10"
+                                    >
+                                      <Globe className="text-neon-blue animate-spin" size={14} /> Ver en Espacio 3D VR (WebGL)
+                                    </button>
+                                  )}
+                                </div>
+                               <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/80 to-transparent translate-y-full group-hover:translate-y-0 transition-transform flex flex-col gap-2">
+                                  {toolResult && (
+                                    <button 
+                                      onClick={() => {
+                                        const url = toolResult || results[selectedResultIndex].generatedImageUrl;
+                                        const link = document.createElement('a');
+                                        link.href = url;
+                                        link.download = `smart-ads-preview-${Date.now()}.${url.startsWith('data:video') ? 'mp4' : 'png'}`;
+                                        link.click();
+                                      }}
+                                      className="w-full py-2 bg-neon-blue text-black text-[10px] font-bold uppercase rounded-lg"
+                                    >
+                                      Descargar Resultado
+                                    </button>
+                                  )}
+                                  {['equirectangular_360', 'video_360'].includes(activeAssetTool) && !showVRViewer && (
+                                    <button 
+                                      type="button"
+                                      onClick={() => {
+                                        setShowVRViewer(true);
+                                        setChatNotification('¡Cargando simulador inmersivo VR 360° con renderizado esférico WebGL!');
+                                      }}
+                                      className="w-full py-2 bg-gradient-to-r from-purple-600 to-neon-blue text-white text-[10px] font-bold uppercase rounded-lg hover:shadow-[0_0_15px_rgba(0,209,255,0.3)] transition-all flex items-center justify-center gap-1"
+                                    >
+                                      🕶️ Iniciar Inmersión VR 360°
+                                    </button>
+                                  )}
+                                  {toolResult && (
+                                    <button 
+                                      onClick={() => {
+                                        setFixedResultVisual(toolResult);
+                                        setVisualPreview(toolResult);
+                                        setChatNotification('¡Se usará este resultado generado para el anuncio final! No se regenerará el contenido audiovisual.');
+                                      }}
+                                      className={cn(
+                                        "w-full py-2 text-[10px] uppercase font-bold rounded-lg transition-all flex items-center justify-center gap-1.5",
+                                        fixedResultVisual === toolResult
+                                          ? "bg-emerald-500 text-white"
+                                          : "bg-white/10 text-white hover:bg-white/20 border border-white/10"
+                                      )}
+                                    >
+                                      {fixedResultVisual === toolResult ? "✓ Usando como Referencia" : "Usar resultado como referencia"}
+                                    </button>
+                                  )}
                                </div>
                              </>
                            ) : (
@@ -3164,6 +4055,7 @@ export default function App() {
                            <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
                         </div>
                       </div>
+                    )}
                     </motion.div>
                   )}
 
@@ -3222,6 +4114,17 @@ export default function App() {
                               className="flex-1 py-4 px-6 rounded-xl border border-white/10 text-white/60 font-orbitron text-xs font-bold uppercase tracking-widest hover:bg-white/5 transition-all"
                             >
                               DESCARTAR
+                            </button>
+                            <button 
+                              onClick={() => {
+                                const link = document.createElement('a');
+                                link.href = optimizedVisual;
+                                link.download = `optimized-product-${Date.now()}.png`;
+                                link.click();
+                              }}
+                              className="flex-1 py-4 px-6 rounded-xl border border-neon-blue/30 text-neon-blue font-orbitron text-xs font-bold uppercase tracking-[0.2em] hover:bg-neon-blue/10 transition-all flex items-center justify-center gap-2"
+                            >
+                              <Download size={18} /> DESCARGAR IMAGEN
                             </button>
                             <button 
                               onClick={applyOptimizedVisual}
@@ -3605,6 +4508,7 @@ export default function App() {
                         "relative group transition-all duration-500 rounded-2xl overflow-hidden bg-transparent",
                         campaign.aspectRatio === '1:1' ? "aspect-square" : 
                         campaign.aspectRatio === '9:16' ? "aspect-[9/16]" : 
+                        campaign.aspectRatio?.includes('2:1') ? "aspect-[2/1]" :
                         "aspect-video"
                       )}>
                         {results[selectedResultIndex].generatedImageUrl ? (
@@ -3863,8 +4767,8 @@ export default function App() {
                   </div>
                   <div className="space-y-4">
                     <h2 className="font-orbitron text-xl font-bold uppercase tracking-[0.2em] text-white">Creative Neural Engine V2.0</h2>
-                    <p className="text-sm max-w-md mx-auto">
-                      Configura tu campaña y sube los datos históricos para que el motor neuronal genere tu próxima pieza ganadora.
+                    <p className="text-sm max-w-md mx-auto text-white/75 leading-relaxed">
+                      De datos a resultados: el sistema inteligente de Smart ADS que analiza, planifica, crea y publica tus campañas de máximo rendimiento.
                     </p>
                   </div>
                   <div className="flex items-center gap-2 text-xs font-bold text-neon-blue uppercase tracking-widest">
@@ -4578,6 +5482,19 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+
+      {showVRViewer && (toolResult || visualPreview) && (
+        <VR360Viewer 
+          backgroundImageUrl={toolResult || visualPreview!} 
+          elementImageUrl={elementPreview}
+          onClose={() => setShowVRViewer(false)} 
+          onPublishMetaAds={handlePublishVRAd}
+          initialInsertType={vr360InsertType}
+          initial3DShape={vr360Selected3DShape}
+          initial3DColor={vr360Model3DColor}
+          initial3DStyle={vr360Model3DStyle}
+        />
+      )}
 
       <SmartBot 
         currentCampaign={campaign} 

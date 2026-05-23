@@ -72,7 +72,8 @@ export async function analyzeAndGenerate(
   visualBase64?: string,
   visualMimeType?: string,
   variantsCount: number = 3,
-  strategicPlan?: StrategicPlan
+  strategicPlan?: StrategicPlan,
+  fixedVisualUrl?: string
 ): Promise<AdResult[]> {
   const isFunnelMode = strategicPlan && strategicPlan.phases && strategicPlan.phases.length > 0 && variantsCount === 3;
   
@@ -151,9 +152,9 @@ export async function analyzeAndGenerate(
       DIRECTRICES CRÍTICAS PARA LAS ${variantsCount} OPCIONES:
       1. DIVERSIDAD ESTRATÉGICA: Cada una de las ${variantsCount} opciones debe atacar el ángulo del producto desde una perspectiva diferente pero siempre alineada con el objetivo (${campaign.objective}).
       2. FIDELIDAD ABSOLUTA DEL PRODUCTO: El producto de la referencia visual proporcionada DEBE mantenerse 100% idéntico en su diseño original, pero debe ser TRATADO COMO UN OBJETO 3D CON VOLUMEN.
-      3. INTEGRACIÓN PROFESIONAL & VOLUMETRÍA: El producto debe ser el protagonista indiscutible. DEBE estar físicamente integrado en la escena con sombras de contacto realistas, reflejos ambientales coherentes y una iluminación que lo envuelva. EVITA representaciones planas o superpuestas. Juega con ángulos de 3/4 o perspectivas dinámicas que resalten su forma tridimensional.
-      4. PERSONIFICACIÓN ACTIVA & CONTEXTUAL: En todas las opciones DEBE aparecer visualmente una representación humana (personaje/modelo) que personifique a la audiencia seleccionada (${campaign.audience}). Esta persona DEBE estar REALIZANDO UNA ACCIÓN PROPIA DE SU ROL (ej: si es un chef, debe estar cortando ingredientes o manejando sartenes; si es un cirujano, debe estar operando con instrumental; si es un creativo, debe estar manipulando una tableta gráfica). No basta con que el personaje esté presente; debe estar ACTIVAMENTE involucrado en su labor profesional dentro de un entorno coherente.
-      5. COMPOSICIÓN BORDE A BORDE (FULL-BLEED): Los visualPrompts deben diseñarse para cubrir el 100% de la superficie del lienzo (${campaign.aspectRatio}). Prohíbe cualquier tipo de marco, borde o franja.
+      3. INTEGRACIÓN PROFESIONAL & VOLUMETRÍA: El producto debe ser el protagonista indiscutible. DEBE estar físicamente integrado en la escena con sombras de contacto realistas, reflejos ambientales coherentes y una iluminación que lo envuelva. Juega con ángulos de 3/4 o perspectivas dinámicas que resalten su forma tridimensional.
+      4. PERSONIFICACIÓN ACTIVA & CONTEXTUAL: En todas las opciones DEBE aparecer visualmente una representation humana (personaje/modelo) que personifique a la audiencia seleccionada (${campaign.audience}). Esta persona DEBE estar REALIZANDO UNA ACCIÓN PROPIA DE SU ROL (ej: si es un chef, debe estar cortando ingredientes o manejando sartenes; si es un cirujano, debe estar operando con instrumental; si es un creativo, debe estar manipulando una tableta gráfica). No basta con que el personaje esté presente; debe estar ACTIVAMENTE involucrado en su labor profesional dentro de un entorno coherente.
+      5. COMPOSICIÓN BORDE A BORDE (FULL-BLEED): Los visualPrompts deben diseñarse para cubrir el 100% de la superficie del lienzo (${campaign.aspectRatio}).
       6. CALIDAD: Cada visualPrompt generado debe ser una obra maestra de composición y detalle.`,
       responseMimeType: "application/json",
       responseSchema: {
@@ -210,65 +211,106 @@ export async function analyzeAndGenerate(
 
   for (const variant of variants) {
     let imageUrl = "";
-    try {
-      const contents = [
-        {
-          parts: [
-            { text: variant.visualPrompt },
-            ...(visualBase64 && visualMimeType ? [{
-              inlineData: {
-                data: visualBase64,
-                mimeType: visualMimeType
+    if (fixedVisualUrl) {
+      imageUrl = fixedVisualUrl;
+    } else {
+      try {
+        const contents = [
+          {
+            parts: [
+              { text: variant.visualPrompt },
+              ...(visualBase64 && visualMimeType ? [{
+                inlineData: {
+                  data: visualBase64,
+                  mimeType: visualMimeType
+                }
+              }] : [])
+            ]
+          }
+        ];
+
+        if (campaign.format === 'video') {
+          const is360 = campaign.aspectRatio.includes("2:1");
+          const videoResponse = await ai.models.generateContent({
+            model: "veo-3.1-lite-generate-preview",
+            contents: [
+              {
+                parts: [
+                  { text: is360 ? `360 degree equirectangular projection, VR 360 photosphere panoramic video: ${variant.visualPrompt}` : variant.visualPrompt },
+                  ...(visualBase64 && visualMimeType ? [{
+                    inlineData: {
+                      data: visualBase64,
+                      mimeType: visualMimeType
+                    }
+                  }] : [])
+                ]
               }
-            }] : [])
-          ]
-        }
-      ];
+            ],
+            config: {
+              videoConfig: {
+                aspectRatio: campaign.aspectRatio === "9:16" ? "9:16" : campaign.aspectRatio === "16:9" ? "16:9" : is360 ? "16:9" : "1:1"
+              },
+              systemInstruction: is360 
+                ? `Eres un Director de Fotografía experto en formatos inmersivos de realidad virtual. Genera un video panorámico de realidad virtual de 360 grados en proyección equirrectangular.
+                REGLAS CRÍTICAS PARA 360° PANORAMA:
+                1. El video DEBE ser una proyección panorámica equirrectangular completa de 360 grados (formato 2:1/photosphere).
+                2. Los bordes laterales izquierdo y derecho deben acoplarse y ser continuos/sin costura (seamless wrap-around).
+                3. El horizonte debe estar perfectamente nivelado en el centro vertical.`
+                : `Eres un Director de Fotografía experto. Genera un video cinematográfico de ALTA CALIDAD y MÁXIMA RESOLUCIÓN. 
+                REGLAS CRÍTICAS DE ENCUADRE Y ACCIÓN:
+                1. El video DEBE ocupar el 100% del lienzo (${campaign.aspectRatio}) de forma NATIVA. La imagen debe ser FULL-BLEED (sangrado total).
+                2. PERSONIFICACIÓN ACTIVA: El sujeto (audiencia) debe estar REALIZANDO una acción física relacionada con su profesión o estilo de vida.
+                3. Si el contenido no llena el espacio, amplía la cámara o el fondo para asegurar cobertura de borde a borde.`
+            } as any
+          });
 
-      if (campaign.format === 'video') {
-        const videoResponse = await ai.models.generateContent({
-          model: "veo-3.1-lite-generate-preview",
-          contents: contents,
-          config: {
-            videoConfig: {
-              aspectRatio: campaign.aspectRatio === "9:16" ? "9:16" : campaign.aspectRatio === "16:9" ? "16:9" : "1:1"
-            },
-            systemInstruction: `Eres un Director de Fotografía experto. Genera un video cinematográfico de ALTA CALIDAD y MÁXIMA RESOLUCIÓN. 
-            REGLAS CRÍTICAS DE ENCUADRE Y ACCIÓN:
-            1. El video DEBE ocupar el 100% del lienzo (${campaign.aspectRatio}) de forma NATIVA. Cero bordes negros, cero franjas.
-            2. Prohibido: letterboxing, pillarboxing o cualquier marco. La imagen debe ser FULL-BLEED (sangrado total).
-            3. PERSONIFICACIÓN ACTIVA: El sujeto (audiencia) debe estar REALIZANDO una acción física relacionada con su profesión o estilo de vida.
-            4. Si el contenido no llena el espacio, amplía la cámara o el fondo para asegurar cobertura de borde a borde.`
-          } as any
-        });
+          const videoPart = videoResponse.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+          if (videoPart?.inlineData) {
+            imageUrl = `data:video/mp4;base64,${videoPart.inlineData.data}`;
+          }
+        } else {
+          const is360 = campaign.aspectRatio.includes("2:1");
+          const imageResponse = await ai.models.generateContent({
+            model: "gemini-2.5-flash-image",
+            contents: [
+              {
+                parts: [
+                  { text: is360 ? `360 degree equirectangular projection, VR 360 photosphere panorama: ${variant.visualPrompt}` : variant.visualPrompt },
+                  ...(visualBase64 && visualMimeType ? [{
+                    inlineData: {
+                      data: visualBase64,
+                      mimeType: visualMimeType
+                    }
+                  }] : [])
+                ]
+              }
+            ],
+            config: {
+              imageConfig: {
+                aspectRatio: campaign.aspectRatio === "9:16" ? "9:16" : campaign.aspectRatio === "16:9" ? "16:9" : is360 ? "16:9" : "1:1"
+              },
+              systemInstruction: is360
+                ? `Genera una imagen panorámica de realidad virtual de 360 grados en proyección equirrectangular pura de ultra alta calidad.
+                REGLAS CRÍTICAS PARA 360° PANORAMA:
+                1. FORMATO EQUIRRECTANGULAR: La imagen debe ser una proyección photosphere/panorámica completa de 360 grados de ancho por 180 grados de alto.
+                2. ACOPLAMIENTO CONTINUO: Los bordes de la extrema izquierda y extrema derecha deben unirse perfectamente (seamless wrap-around) sin distorsiones ni cortes visibles.
+                3. Horizonte perfectamente centrado y recto.`
+                : `Genera una imagen publicitaria de ALTA CALIDAD. 
+                REGLAS CRÍTICAS:
+                1. ENCUADRE TOTAL: El contenido debe llenar el 100% del área (${campaign.aspectRatio}). Full-bleed obligatorio.
+                2. PERSONIFICACIÓN ACTIVA: El personaje de la audiencia debe estar EJECUTANDO una acción propia de su contexto (ej: operando, diseñando, cocinando).
+                3. TRIDIMENSIONALIDAD: El producto debe tener peso, sombras de contacto y profundidad 3D real integrada en el entorno.`
+            } as any
+          });
 
-        const videoPart = videoResponse.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-        if (videoPart?.inlineData) {
-          imageUrl = `data:video/mp4;base64,${videoPart.inlineData.data}`;
+          const imagePart = imageResponse.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+          if (imagePart?.inlineData) {
+            imageUrl = `data:image/png;base64,${imagePart.inlineData.data}`;
+          }
         }
-      } else {
-        const imageResponse = await ai.models.generateContent({
-          model: "gemini-2.5-flash-image",
-          contents: contents,
-          config: {
-            imageConfig: {
-              aspectRatio: campaign.aspectRatio === "9:16" ? "9:16" : campaign.aspectRatio === "16:9" ? "16:9" : "1:1"
-            },
-            systemInstruction: `Genera una imagen publicitaria de ALTA CALIDAD. 
-            REGLAS CRÍTICAS:
-            1. ENCUADRE TOTAL: El contenido debe llenar el 100% del área (${campaign.aspectRatio}) sin ningún margen, borde o franja. Full-bleed obligatorio.
-            2. PERSONIFICACIÓN ACTIVA: El personaje de la audiencia debe estar EJECUTANDO una acción propia de su contexto (ej: operando, diseñando, cocinando).
-            3. TRIDIMENSIONALIDAD: El producto debe tener peso, sombras de contacto y profundidad 3D real integrada en el entorno.`
-          } as any
-        });
-
-        const imagePart = imageResponse.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-        if (imagePart?.inlineData) {
-          imageUrl = `data:image/png;base64,${imagePart.inlineData.data}`;
-        }
+      } catch (e) {
+        console.error("Error generating visual:", e);
       }
-    } catch (e) {
-      console.error("Error generating visual:", e);
     }
 
     finalResults.push({
@@ -355,7 +397,183 @@ export async function optimizeProductReference(
   });
 
   const imagePart = imageResponse.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-  return imagePart?.inlineData ? `data:image/png;base64,${imagePart.inlineData.data}` : "";
+  if (!imagePart?.inlineData?.data) {
+    return "";
+  }
+
+  const rawImageBase64 = `data:image/png;base64,${imagePart.inlineData.data}`;
+  try {
+    const transparentImage = await removeBackgroundClientSide(rawImageBase64);
+    return transparentImage;
+  } catch (err) {
+    console.warn("Could not apply background transparency path, returning raw optimization:", err);
+    return rawImageBase64;
+  }
+}
+
+/**
+ * High-performance seed-based flood-fill background removal.
+ * Automatically detetches neutral background colors from corners or pure white defaults,
+ * and makes them transparent while safely preserving interior product colors.
+ */
+function removeBackgroundClientSide(base64Src: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      try {
+        const width = img.width;
+        const height = img.height;
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          throw new Error("Could not get canvas context");
+        }
+
+        ctx.drawImage(img, 0, 0);
+
+        const imgData = ctx.getImageData(0, 0, width, height);
+        const data = imgData.data;
+
+        // BFS Flood-fill to find contiguous background pixels
+        const visited = new Uint8Array(width * height);
+        const isBg = new Uint8Array(width * height);
+        const queue: number[] = [];
+
+        // Helper to query color of a specific pixel
+        const getPixel = (x: number, y: number) => {
+          const idx = (y * width + x) * 4;
+          return {
+            r: data[idx],
+            g: data[idx + 1],
+            b: data[idx + 2],
+            a: data[idx + 3]
+          };
+        };
+
+        // Extract color samples from the four corners to define background characteristics
+        const corners = [
+          getPixel(0, 0),
+          getPixel(width - 1, 0),
+          getPixel(0, height - 1),
+          getPixel(width - 1, height - 1)
+        ];
+
+        // Core logic to detect if pixel qualifies as background (white/off-white or matches corners)
+        const isBgPixel = (x: number, y: number) => {
+          const p = getPixel(x, y);
+          if (p.a === 0) return true;
+
+          // Pure white or very bright studio light colors
+          if (p.r > 238 && p.g > 238 && p.b > 238) {
+            return true;
+          }
+
+          // Corner color matches with reasonable tolerance
+          for (const c of corners) {
+            const dist = Math.sqrt(
+              Math.pow(p.r - c.r, 2) +
+              Math.pow(p.g - c.g, 2) +
+              Math.pow(p.b - c.b, 2)
+            );
+            if (dist < 48) {
+              return true;
+            }
+          }
+          return false;
+        };
+
+        const pushSeed = (x: number, y: number) => {
+          const idx = y * width + x;
+          if (visited[idx]) return;
+          if (isBgPixel(x, y)) {
+            visited[idx] = 1;
+            isBg[idx] = 1;
+            queue.push(idx);
+          }
+        };
+
+        // Initialize queue with all outermost bounds seeds
+        for (let x = 0; x < width; x++) {
+          pushSeed(x, 0);
+          pushSeed(x, height - 1);
+        }
+        for (let y = 1; y < height - 1; y++) {
+          pushSeed(0, y);
+          pushSeed(width - 1, y);
+        }
+
+        // BFS traversal
+        let head = 0;
+        const directions = [
+          [-1, 0], [1, 0], [0, -1], [0, 1]
+        ];
+
+        while (head < queue.length) {
+          const currIdx = queue[head++];
+          const cx = currIdx % width;
+          const cy = Math.floor(currIdx / width);
+
+          for (const [dx, dy] of directions) {
+            const nx = cx + dx;
+            const ny = cy + dy;
+
+            if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+              const nIdx = ny * width + nx;
+              if (!visited[nIdx]) {
+                if (isBgPixel(nx, ny)) {
+                  visited[nIdx] = 1;
+                  isBg[nIdx] = 1;
+                  queue.push(nIdx);
+                }
+              }
+            }
+          }
+        }
+
+        // Convert detected contiguous background pixels to fully transparent
+        for (let i = 0; i < width * height; i++) {
+          if (isBg[i] === 1) {
+            const idx = i * 4;
+            data[idx + 3] = 0; // Transparent alpha
+          }
+        }
+
+        // Apply a gentle anti-aliasing feathering to the product boundary edges
+        for (let y = 1; y < height - 1; y++) {
+          for (let x = 1; x < width - 1; x++) {
+            const idx = y * width + x;
+            if (isBg[idx] === 0) { // Active product pixel
+              let bgNeighbors = 0;
+              for (const [dx, dy] of directions) {
+                if (isBg[(y + dy) * width + (x + dx)] === 1) {
+                  bgNeighbors++;
+                }
+              }
+
+              if (bgNeighbors > 0) {
+                const pIdx = idx * 4;
+                // Soft edge blending based on closeness to outside space
+                const factor = (4 - bgNeighbors) / 4;
+                data[pIdx + 3] = Math.round(data[pIdx + 3] * factor * 0.95);
+              }
+            }
+          }
+        }
+
+        ctx.putImageData(imgData, 0, 0);
+        resolve(canvas.toDataURL("image/png", 1.0));
+      } catch (err) {
+        reject(err);
+      }
+    };
+    img.onerror = (e) => reject(new Error("Failed to load generated studio image: " + String(e)));
+    img.src = base64Src;
+  });
 }
 
 export async function generateStorytellingPrompt(
@@ -380,7 +598,7 @@ export async function generateStorytellingPrompt(
     Eres un Director de Cine y Experto en VFX de Clase Mundial. Tu misión es transformar el storytelling y el CTA anterior en un PROMPT TÉCNICO MAESTRO para una IA de generación de video (Luma, Sora, Kling).
     
     ESTRUCTURA OBLIGATORIA DEL PROMPT (Fórmula Maestra):
-    [Sujeto] + [Acción] + [Escenario] + [Movimiento de cámara] + [Lente] + [Iluminación] + [Estilo visual] + [Parámetros técnicos] + [Restricciones]
+    [Sujeto] + [Acción] + [Escenario] + [Movimiento de cámara] + [Lente] + [Iluminación] + [Estilo visual] + [Parámetros técnicos]
     
     VARIABLES TÉCNICAS A CONSIDERAR POR BLOQUE:
     1. CONCEPTO (Intención): Define la emoción (Inspiración, Suspenso, Deseo, Exclusividad, Innovación, Confianza).
@@ -393,7 +611,6 @@ export async function generateStorytellingPrompt(
     5. ILUMINACIÓN: Soft light, Volumetric lighting, Neon glow, Studio lighting, Rim light, Golden hour.
     6. ESTILO VISUAL: Cinematic luxury, Hyperrealistic, Apple-style minimalism, Sci-fi realism, Fashion editorial.
     7. PARÁMETROS: 4K, 24fps (cine), 60fps, 120fps (slow motion), Ultra-detailed, Cinematic motion blur.
-    8. RESTRICCIONES (Negative Prompt): No distortions, no text artifacts, no unnatural motion, no flicker, no extra fingers, no warped faces.
 
     PRINCIPIO DE DIRECCIÓN:
     El personaje principal DEBE estar realizando LIP-SYNC (sincronización labial) de TODO el guion (storytelling + CTA). El personaje debe actuar con naturalidad dentro del escenario mientras narra la historia.
@@ -422,10 +639,11 @@ export async function generateVideoFromPrompt(
     finalPrompt = await generateStorytellingPrompt(storytellingText, duration, audience, cta);
   }
 
+  const is360 = aspectRatio.includes("2:1");
   const contents = [
     {
       parts: [
-        { text: finalPrompt },
+        { text: is360 ? `360 degree equirectangular projection, VR 360 photosphere panoramic video: ${finalPrompt}` : finalPrompt },
         ...(visualBase64 && visualMimeType ? [{
           inlineData: {
             data: visualBase64,
@@ -441,14 +659,21 @@ export async function generateVideoFromPrompt(
     contents: contents,
     config: {
       videoConfig: {
-        aspectRatio: aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : "1:1",
+        aspectRatio: aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : is360 ? "16:9" : "1:1",
         durationSeconds: duration
       },
-      systemInstruction: `Eres un experto cinematográfico de élite. Genera un video de ALTA RESOLUCIÓN con composición premium.
-      REGLAS DE ORO:
-      1. ENCUADRE FULL-FRAME: El video debe expandirse por TODO el lienzo (${aspectRatio}) sin excepción. Cero bordes.
-      2. PERSONIFICACIÓN ACTIVA & AVATAR: El personaje debe estar vivo, moviéndose y hablando (avatar lip-sync) si el prompt lo sugiere.
-      3. CALIDAD 8K: Texturas realistas y movimientos fluidos.`
+      systemInstruction: is360 
+        ? `Eres un Director de Fotografía experto en formatos inmersivos de realidad virtual de última generación (8K UHD). Genera un video panorámico de realidad virtual de 360 grados en proyección equirrectangular con calidad ultra cinematográfica de 8K (7680x3840).
+        REGLAS CRÍTICAS PARA EL FORMATO PANORÁMICO 360 8K:
+        1. PROYECCIÓN EQUIRRECTANGULAR PERFECTA: El video debe estructurarse con la relación matemática exacta de aspecto 2:1 propia de una photosphere panorámica completa de 360° x 180°.
+        2. ENCUADRE DE EXTREMOS Y ACOPLAMIENTO INVISIBLE (SEAMLESS 360): Los extremos laterales izquierdo y derecho de la imagen de cada fotograma deben unirse milimétricamente sin ninguna costura, salto de luz o distorsión espacial. La continuidad volumétrica debe ser perfecta para evitar costuras visibles durante la inmersión interactiva.
+        3. HORIZONTE RECTO Y ENFOCADOR: El horizonte se mantendrá nivelado de manera absoluta en el centro meridiano vertical.
+        4. TEXTURAS DE ALTO CONTRASTE 8K: Máxima nitidez y fidelidad fotorrealista adaptada óptimamente para entornos corporativos tridimensionales y simulaciones de Meta Ads.`
+        : `Eres un experto cinematográfico de élite. Genera un video de ALTA RESOLUCIÓN con composición premium.
+        REGLAS DE ORO:
+        1. ENCUADRE FULL-FRAME: El video debe expandirse por TODO el lienzo (${aspectRatio}) sin excepción.
+        2. PERSONIFICACIÓN ACTIVA & AVATAR: El personaje debe estar vivo, moviéndose y hablando (avatar lip-sync) si el prompt lo sugiere.
+        3. CALIDAD 8K: Texturas realistas y movimientos fluidos.`
     } as any
   });
 
@@ -460,16 +685,25 @@ export async function generateImageFromPrompt(
   prompt: string,
   aspectRatio: string = '1:1',
   visualBase64?: string,
-  visualMimeType?: string
+  visualMimeType?: string,
+  elementBase64?: string,
+  elementMimeType?: string
 ): Promise<string> {
+  const is360 = aspectRatio.includes("2:1");
   const contents = [
     {
       parts: [
-        { text: prompt },
+        { text: is360 ? `360 degree equirectangular projection, VR 360 photosphere panorama: ${prompt}` : prompt },
         ...(visualBase64 && visualMimeType ? [{
           inlineData: {
             data: visualBase64,
             mimeType: visualMimeType
+          }
+        }] : []),
+        ...(elementBase64 && elementMimeType ? [{
+          inlineData: {
+            data: elementBase64,
+            mimeType: elementMimeType
           }
         }] : [])
       ]
@@ -481,11 +715,24 @@ export async function generateImageFromPrompt(
     contents: contents,
     config: {
       imageConfig: {
-        aspectRatio: aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : "1:1"
+        aspectRatio: aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : is360 ? "16:9" : "1:1"
       },
-      systemInstruction: `Genera una imagen publicitaria premium. 
-      REGLA DE ORO (ENCUADRE): La imagen debe ser FULL-BLEED, llenando el 100% de la relación (${aspectRatio}). CERO bordes, marcos o franjas. No dejes espacio vacío en los bordes.
-      REGLA DE PERSONIFICACIÓN ACTIVA: Incluye a la audiencia objetivo REALIZANDO una acción física y real propia de su contexto profesional o de estilo de vida, integrada orgánicamente con el producto.`
+      systemInstruction: is360
+        ? `Genera una imagen panorámica de realidad virtual de 360 grados en proyección equirrectangular pura de CALIDAD ULTRA DE ALTA DEFINICIÓN 8K (7680x3840) para Meta Ads inmersivos.
+        REGLAS CRÍTICAS DE ENCUADRE Y CALIDAD 8K PARA PANORAMAS:
+        1. RELACIÓN EQUIRRECTANGULAR PERFECTA: La imagen debe diseñarse en una relación de aspecto matemática perfecta de 2:1 que represente la esfera completa (360° horizontal x 180° vertical).
+        2. ACOPLAMIENTO DE EXTREMOS 100% INVISIBLE: El extremo de la extrema izquierda (x=0) y el extremo de la extrema derecha (x=ancho) deben coincidir milimétricamente en iluminación, texturas, colores y líneas de guía espacial para crear una costura totalmente seamless libre de cortes o parpadeos durante el giro.
+        3. Horizonte perfectamente recto, centrado verticalmente y equilibrado.
+        4. Fidelidad tridimensional suprema, texturas nítidas hiper-glorificadas e iluminación fotorrealista para una inmersión VR absoluta de 8K.`
+        : `Genera una imagen publicitaria premium. 
+        REGLA DE ORO (ENCUADRE): La imagen debe ser FULL-BLEED, llenando el 100% de la relación (${aspectRatio}).
+        REGLA DE PERSONIFICACIÓN ACTIVA: Incluye a la audiencia objetivo REALIZANDO una acción física y real propia de su contexto profesional o de estilo de vida, integrada orgánicamente con el producto.
+        
+        REGLA DE COMPOSICIÓN (SI SE ENVIARON DOS REFERENCIAS):
+        Si se han proporcionado dos imágenes de referencia:
+        - La primera imagen representa la escena base o de fondo (la imagen principal a la que se le añade algo).
+        - La segunda imagen representa un elemento visual específico, objeto, logo o producto que se debe integrar con total realismo bidimensional/tridimensional en la primera imagen.
+        - Utiliza las instrucciones del prompt para fusionar ambos de forma cohesiva respetando sombras, iluminación y reflejos.`
     } as any
   });
 
@@ -772,10 +1019,10 @@ export async function enhancePrompt(
     LA INSTRUCCIÓN GENERADA DEBE INCLUIR:
     1. Personificación Activa de la Audiencia (CRÍTICO): Siempre incluye a un personaje que represente a la audiencia (${context?.audience || 'la audiencia objetivo'}) REALIZANDO UNA ACCIÓN FÍSICA PROPIA de su rol (ej: "Digital Designer trabajando en su equipo", "Cirujano operando"). No debe estar posando, debe participar en la acción del contexto.
     2. Integración 3D y Volumen: El producto DEBE ser un objeto 3D sólido con profundidad, sombras de contacto densas y reflejos realistas.
-    3. Composición Full-Bleed: Asegura que el encuadre llene el 100% del lienzo, de borde a borde, sin ningún tipo de margen o franja negra. Zoom ligeramente in si es necesario para garantizar cobertura total.
+    3. Composición Full-Bleed: Asegura que el encuadre llene el 100% del lienzo, de borde a borde. Zoom ligeramente in si es necesario para garantizar cobertura total.
     4. Iluminación y Texturas: Calidad cinematográfica 8k.
     
-    REGLA: Responde ÚNICAMENTE con el prompt expandido en español. Prohíbe explícitamente bordes y marcos. Enfatiza la acción del personaje.
+    REGLA: Responde ÚNICAMENTE con el prompt expandido en español. Enfatiza la acción del personaje.
     `
   });
 

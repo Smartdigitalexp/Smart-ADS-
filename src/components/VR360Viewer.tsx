@@ -19,11 +19,19 @@ import {
   Sparkles,
   Box,
   Camera,
-  Video
+  Video,
+  ChevronUp,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  Keyboard
 } from 'lucide-react';
 
 interface VR360ViewerProps {
-  backgroundImageUrl: string;
+  backgroundImageUrl: string | null;
   elementImageUrl?: string | null;
   onClose?: () => void;
   onPublishMetaAds?: (imageUrl: string) => void;
@@ -96,6 +104,9 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
   // Full-screen and panel toggle states for optimized 360 presentation
   const [isFullScreen, setIsFullScreen] = useState(true);
   const [showSidebar, setShowSidebar] = useState(true);
+  const [currentFov, setCurrentFov] = useState(75);
+  const [currentCoords, setCurrentCoords] = useState({ x: 0, y: 0, z: 0 });
+  const [hudMode, setHudMode] = useState<'look' | 'move'>('look');
 
   // Synchronized physics simulation parameters
   const [physicsEnabled, setPhysicsEnabled] = useState(true);
@@ -137,6 +148,10 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
   const paramsRef = useRef({
     lat: 0,
     lon: 180,
+    fov: 75,
+    posX: 0,
+    posY: 0,
+    posZ: 0,
     isDragging: false,
     startX: 0,
     startY: 0,
@@ -190,6 +205,99 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
     selected3DShape, model3DColor, model3DStyle, model3DRotationSpeed,
     physicsEnabled, physicsBounciness, physicsFriction, physicsGravity
   ]);
+
+  // High-fidelity camera displacement helper functions for VR headset immersion
+  const moveCamera = (direction: 'forward' | 'backward' | 'left' | 'right' | 'up' | 'down', speed = 12) => {
+    const state = paramsRef.current;
+    
+    // Convert current longitude rotation (degrees) to radians to compute direction vectors
+    const theta = THREE.MathUtils.degToRad(state.lon);
+    
+    let dx = 0;
+    let dy = 0;
+    let dz = 0;
+
+    switch (direction) {
+      case 'forward':
+        dx = Math.sin(theta) * speed;
+        dz = Math.cos(theta) * speed;
+        break;
+      case 'backward':
+        dx = -Math.sin(theta) * speed;
+        dz = -Math.cos(theta) * speed;
+        break;
+      case 'left':
+        dx = -Math.cos(theta) * speed;
+        dz = Math.sin(theta) * speed;
+        break;
+      case 'right':
+        dx = Math.cos(theta) * speed;
+        dz = -Math.sin(theta) * speed;
+        break;
+      case 'up':
+        dy = speed;
+        break;
+      case 'down':
+        dy = -speed;
+        break;
+    }
+
+    const nextX = (state.posX || 0) + dx;
+    const nextY = (state.posY || 0) + dy;
+    const nextZ = (state.posZ || 0) + dz;
+
+    // Stay inside the 360-degree panorama sphere bounding radius (450 units)
+    const distance = Math.sqrt(nextX * nextX + nextY * nextY + nextZ * nextZ);
+    if (distance <= 450) {
+      state.posX = nextX;
+      state.posY = nextY;
+      state.posZ = nextZ;
+    } else {
+      const factor = 450 / distance;
+      state.posX = nextX * factor;
+      state.posY = nextY * factor;
+      state.posZ = nextZ * factor;
+    }
+
+    setCurrentCoords({
+      x: Math.round(state.posX),
+      y: Math.round(state.posY),
+      z: Math.round(state.posZ)
+    });
+  };
+
+  const handleLookUp = () => {
+    paramsRef.current.lat = Math.min(85, paramsRef.current.lat + 8);
+  };
+  const handleLookDown = () => {
+    paramsRef.current.lat = Math.max(-85, paramsRef.current.lat - 8);
+  };
+  const handleLookLeft = () => {
+    paramsRef.current.lon -= 12;
+  };
+  const handleLookRight = () => {
+    paramsRef.current.lon += 12;
+  };
+  const handleZoomIn = () => {
+    const nextFov = Math.max(30, paramsRef.current.fov - 6);
+    paramsRef.current.fov = nextFov;
+    setCurrentFov(Math.round(nextFov));
+  };
+  const handleZoomOut = () => {
+    const nextFov = Math.min(110, paramsRef.current.fov + 6);
+    paramsRef.current.fov = nextFov;
+    setCurrentFov(Math.round(nextFov));
+  };
+  const handleResetView = () => {
+    paramsRef.current.lat = 0;
+    paramsRef.current.lon = 180;
+    paramsRef.current.fov = 75;
+    paramsRef.current.posX = 0;
+    paramsRef.current.posY = 0;
+    paramsRef.current.posZ = 0;
+    setCurrentFov(75);
+    setCurrentCoords({ x: 0, y: 0, z: 0 });
+  };
 
   // Export Scene to GLB (Meta Ads)
   const handleExportGLB = async () => {
@@ -277,9 +385,14 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
 
   // Convert and download the 360 background or video asset in maximum resolution and 2:1 ratio
   const handleDownloadConvertedAsset = async () => {
+    // If backgroundImageUrl is not present but localElementImageUrl is, we allow exporting on a custom clean background!
+    if (!backgroundImageUrl && !localElementImageUrl) {
+      alert("No hay ningún entorno ni elemento modelado para descargar. Genera un entorno 360° o un elemento modelado primero.");
+      return;
+    }
     const isVideo = backgroundImageUrl?.startsWith('data:video') || backgroundImageUrl?.endsWith('.mp4') || backgroundImageUrl?.includes('video');
     
-    if (isVideo) {
+    if (isVideo && backgroundImageUrl) {
       // It's a video: download the MP4 file directly with standard .mp4 extension (is H.264 compatible)
       setIsExporting(true);
       setExportProgress('Empaquetando video 360° en formato MP4 H.264 8K Seamless...');
@@ -302,9 +415,6 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
     setExportProgress(`Procesando panel de imagen 360° en relación 2:1 (Calidad ${targetResLabel})...`);
     
     try {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      
       let width = 7680; // 8K default
       let height = 3840;
       
@@ -315,123 +425,128 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
         width = 2048;
         height = 1024;
       }
-      
-      img.onload = () => {
-        setExportProgress('Aplicando algoritmo de encuadre seamless en extremos y codificando...');
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          // Draw image to completely fit the 2:1 canvas dimension (ensuring strict 2:1 aspect ratio)
-          ctx.drawImage(img, 0, 0, width, height);
 
-          // Algoritmo de Acoplamiento Invisible en Extremos (Seamless Horizontal Border Blending)
-          // To ensure that the leftmost edge matches the rightmost edge perfectly when wrapping around in 3D
-          try {
-            const blendW = Math.round(width * 0.04); // 4% blend zone on edges
-            const imgData = ctx.getImageData(0, 0, width, height);
-            const data = imgData.data;
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error("No se pudo iniciar el lienzo de renderizado de imagen.");
 
-            for (let y = 0; y < height; y++) {
-              const rowOffset = y * width * 4;
-              for (let x = 0; x < blendW; x++) {
-                const leftIdx = rowOffset + x * 4;
-                const rightIdx = rowOffset + (width - blendW + x) * 4;
+      // STEP 1: Load and blend the 360 background
+      const loadBg = () => {
+        return new Promise<void>((resolve) => {
+          if (!backgroundImageUrl) {
+            // Fill with professional elegant studio gradient or solid dark color to show the element cleanly
+            const grad = ctx.createLinearGradient(0, 0, 0, height);
+            grad.addColorStop(0, '#0c0d12');
+            grad.addColorStop(0.5, '#07070a');
+            grad.addColorStop(1, '#020204');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, width, height);
+            resolve();
+            return;
+          }
 
-                const alpha = x / blendW; // transition scale from 0 to 1
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.onload = () => {
+            // Draw image to completely fit the 2:1 canvas dimension (ensuring strict 2:1 aspect ratio)
+            ctx.drawImage(img, 0, 0, width, height);
 
-                for (let c = 0; c < 3; c++) { // RGB channels
-                  const leftVal = data[leftIdx + c];
-                  const rightVal = data[rightIdx + c];
-                  // Linearly interpolate so the seam blends flawlessly
-                  const blendedVal = rightVal * (1 - alpha) + leftVal * alpha;
-                  data[leftIdx + c] = blendedVal;
-                  data[rightIdx + c] = blendedVal;
+            // Algoritmo de Acoplamiento Invisible en Extremos (Seamless Horizontal Border Blending)
+            // To ensure that the leftmost edge matches the rightmost edge perfectly when wrapping around in 3D
+            try {
+              const blendW = Math.round(width * 0.04); // 4% blend zone on edges
+              const imgData = ctx.getImageData(0, 0, width, height);
+              const data = imgData.data;
+
+              for (let y = 0; y < height; y++) {
+                const rowOffset = y * width * 4;
+                for (let x = 0; x < blendW; x++) {
+                  const leftIdx = rowOffset + x * 4;
+                  const rightIdx = rowOffset + (width - blendW + x) * 4;
+
+                  const alpha = x / blendW; // transition scale from 0 to 1
+
+                  for (let c = 0; c < 3; c++) { // RGB channels
+                    const leftVal = data[leftIdx + c];
+                    const rightVal = data[rightIdx + c];
+                    // Linearly interpolate so the seam blends flawlessly
+                    const blendedVal = rightVal * (1 - alpha) + leftVal * alpha;
+                    data[leftIdx + c] = blendedVal;
+                    data[rightIdx + c] = blendedVal;
+                  }
                 }
               }
+              ctx.putImageData(imgData, 0, 0);
+            } catch (blendError) {
+              console.warn("Could not apply mathematical seamless border blending:", blendError);
             }
-            ctx.putImageData(imgData, 0, 0);
-          } catch (blendError) {
-            console.warn("Could not apply mathematical seamless border blending:", blendError);
-          }
-          
-          const mimeType = exportFormat === 'jpg' ? 'image/jpeg' : 'image/png';
-          const fileExtension = exportFormat === 'jpg' ? 'jpg' : 'png';
-          
-          let resName = '8K_ULTRA_2-1';
-          if (exportResolution === 'max') resName = '4K_MAX_2-1';
-          if (exportResolution === 'high') resName = '2K_HIGH_2-1';
+            resolve();
+          };
+          img.onerror = () => {
+            // Fallback fill to dark
+            ctx.fillStyle = '#07070a';
+            ctx.fillRect(0, 0, width, height);
+            resolve();
+          };
+          img.src = backgroundImageUrl;
+        });
+      };
 
-          const filename = `smart_ads_360_panorama_${resName}_${Date.now()}.${fileExtension}`;
+      await loadBg();
 
-          try {
-            canvas.toBlob((blob) => {
-              if (!blob) {
-                // Return fallback Base64
-                const dataUrl = canvas.toDataURL(mimeType, 0.95);
-                const link = document.createElement('a');
-                link.href = dataUrl;
-                link.download = filename;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                setIsExporting(false);
-                setExportProgress('');
-                return;
-              }
+      // STEP 2: Load and overlay the modeled custom product image (elementImageUrl)
+      if (localElementImageUrl) {
+        setExportProgress('Incrustando y alineando tridimensionalmente tu producto modelado...');
+        await new Promise<void>((resolveElement) => {
+          const elemImg = new Image();
+          elemImg.crossOrigin = 'anonymous';
+          elemImg.onload = () => {
+            // Map spherical coordinates to equirectangular 2D pixels
+            // elemLon goes from -180 to 180 (X corresponds to longitude)
+            // In Three.js flipped sphere scale(-1, 1, 1), coordinates are mapped as u = (180 - elemLon) / 360
+            const u = (180 - elemLon) / 360; 
+            // elemLat goes from -90 (South) to 90 (North)
+            const v = (90 - elemLat) / 180;
 
-              if (exportFormat === 'jpg') {
-                setExportProgress('Inyectando metadatos de proyección 360° para Meta/Facebook...');
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                  try {
-                    const originalBuffer = reader.result as ArrayBuffer;
-                    const originalBytes = new Uint8Array(originalBuffer);
-                    const modifiedBytes = injectGPanoMetadata(originalBytes, width, height);
+            const drawX = u * width;
+            const drawY = v * height;
 
-                    const finalBlob = new Blob([modifiedBytes], { type: 'image/jpeg' });
-                    const downloadUrl = URL.createObjectURL(finalBlob);
+            const aspect = elemImg.width / elemImg.height;
+            // Proportional sizing: standard is elemScale % of canvas height
+            const elementHeight = (elemScale / 12) * height;
+            const elementWidth = elementHeight * aspect;
 
-                    const link = document.createElement('a');
-                    link.href = downloadUrl;
-                    link.download = filename;
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    setTimeout(() => URL.revokeObjectURL(downloadUrl), 200);
-                  } catch (e) {
-                    console.error('Error during metadata injection:', e);
-                    // Fallback to normal blob
-                    const downloadUrl = URL.createObjectURL(blob);
-                    const link = document.createElement('a');
-                    link.href = downloadUrl;
-                    link.download = filename;
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    setTimeout(() => URL.revokeObjectURL(downloadUrl), 200);
-                  }
-                  setIsExporting(false);
-                  setExportProgress('');
-                };
-                reader.readAsArrayBuffer(blob);
-              } else {
-                // PNG: Direct download
-                const downloadUrl = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = downloadUrl;
-                link.download = filename;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                setTimeout(() => URL.revokeObjectURL(downloadUrl), 200);
-                setIsExporting(false);
-                setExportProgress('');
-              }
-            }, mimeType, 0.95);
-          } catch (blobErr) {
-            console.error("toBlob conversion was unsuccessful, falling back to dataUrl:", blobErr);
+            // Draw element image aligned precisely to the spatial center coordinate
+            const x = drawX - elementWidth / 2;
+            const y = drawY - elementHeight / 2;
+
+            ctx.drawImage(elemImg, x, y, elementWidth, elementHeight);
+            resolveElement();
+          };
+          elemImg.onerror = (err) => {
+            console.error('Error loading modeled product image for overlay rendering:', err);
+            resolveElement();
+          };
+          elemImg.src = localElementImageUrl;
+        });
+      }
+
+      // STEP 3: Save and triggers standard download workflow
+      const mimeType = exportFormat === 'jpg' ? 'image/jpeg' : 'image/png';
+      const fileExtension = exportFormat === 'jpg' ? 'jpg' : 'png';
+      
+      let resName = '8K_ULTRA_2-1';
+      if (exportResolution === 'max') resName = '4K_MAX_2-1';
+      if (exportResolution === 'high') resName = '2K_HIGH_2-1';
+
+      const filename = `smart_ads_360_panorama_${resName}_${Date.now()}.${fileExtension}`;
+
+      try {
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            // Return fallback Base64
             const dataUrl = canvas.toDataURL(mimeType, 0.95);
             const link = document.createElement('a');
             link.href = dataUrl;
@@ -441,25 +556,71 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
             document.body.removeChild(link);
             setIsExporting(false);
             setExportProgress('');
+            return;
           }
-        }
-      };
-      
-      img.onerror = (err) => {
-        console.error('Error loading 360 image asset onto converter canvas:', err);
-        // Fallback
-        const fileExtension = exportFormat === 'jpg' ? 'jpg' : 'png';
+
+          if (exportFormat === 'jpg') {
+            setExportProgress('Inyectando metadatos de proyección 360° para Meta/Facebook...');
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              try {
+                const originalBuffer = reader.result as ArrayBuffer;
+                const originalBytes = new Uint8Array(originalBuffer);
+                const modifiedBytes = injectGPanoMetadata(originalBytes, width, height);
+
+                const finalBlob = new Blob([modifiedBytes], { type: 'image/jpeg' });
+                const downloadUrl = URL.createObjectURL(finalBlob);
+
+                const link = document.createElement('a');
+                link.href = downloadUrl;
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                setTimeout(() => URL.revokeObjectURL(downloadUrl), 200);
+              } catch (e) {
+                console.error('Error during metadata injection:', e);
+                // Fallback to normal blob
+                const downloadUrl = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = downloadUrl;
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                setTimeout(() => URL.revokeObjectURL(downloadUrl), 200);
+              }
+              setIsExporting(false);
+              setExportProgress('');
+            };
+            reader.readAsArrayBuffer(blob);
+          } else {
+            // PNG: Direct download
+            const downloadUrl = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            setTimeout(() => URL.revokeObjectURL(downloadUrl), 200);
+            setIsExporting(false);
+            setExportProgress('');
+          }
+        }, mimeType, 0.95);
+      } catch (blobErr) {
+        console.error("toBlob conversion was unsuccessful, falling back to dataUrl:", blobErr);
+        const dataUrl = canvas.toDataURL(mimeType, 0.95);
         const link = document.createElement('a');
-        link.href = backgroundImageUrl;
-        link.download = `smart_ads_360_panorama_${Date.now()}.${fileExtension}`;
+        link.href = dataUrl;
+        link.download = filename;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
         setIsExporting(false);
         setExportProgress('');
-      };
-      
-      img.src = backgroundImageUrl;
+      }
+
     } catch (e) {
       console.error('Canvas converter exception:', e);
       setIsExporting(false);
@@ -525,7 +686,7 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
         console.error("Error creating VideoTexture:", err);
         setLoading(false);
       }
-    } else {
+    } else if (backgroundImageUrl) {
       textureLoader.load(
         backgroundImageUrl,
         (texture) => {
@@ -544,6 +705,9 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
           setLoading(false);
         }
       );
+    } else {
+      sphere.material = new THREE.MeshBasicMaterial({ color: 0x07070a, side: THREE.BackSide });
+      setLoading(false);
     }
 
     // 4. VR Reference Grid Helpers (Polar Coordinate System)
@@ -628,6 +792,12 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
     const updateControls = () => {
       const state = paramsRef.current;
 
+      // Apply real-time perspective zoom adjustments (FOV mapping)
+      if (camera.fov !== state.fov) {
+        camera.fov = state.fov;
+        camera.updateProjectionMatrix();
+      }
+
       // Handle Autopilot panorama scanning rotation
       if (state.autoRotate && !state.isDragging) {
         state.lon += 0.08;
@@ -642,7 +812,12 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
       target.x = Math.sin(phi) * Math.sin(theta);
       target.y = Math.cos(phi);
       target.z = Math.sin(phi) * Math.cos(theta);
-      camera.lookAt(target);
+
+      // Update camera spatial position from the displacement coordinates
+      camera.position.set(state.posX || 0, state.posY || 0, state.posZ || 0);
+
+      // Point the camera look direction outwards relative to its translation offset
+      camera.lookAt(camera.position.x + target.x, camera.position.y + target.y, camera.position.z + target.z);
 
       // Render 3D Helper grid when enabled
       gridGroup.visible = state.showGrid;
@@ -1078,10 +1253,110 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
       paramsRef.current.isDragging = false;
     };
 
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const current_fov = paramsRef.current.fov;
+      const next_fov = Math.max(30, Math.min(110, current_fov + e.deltaY * 0.05));
+      paramsRef.current.fov = next_fov;
+      setCurrentFov(Math.round(next_fov));
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA' || document.activeElement?.tagName === 'SELECT') {
+        return;
+      }
+      const step = 4; // degrees per press for rotation
+      const moveSpeed = 15; // units per press for spatial translation
+      let handled = false;
+      
+      switch (e.key) {
+        // --- TRANSLATION MOVEMENT (WALK/STRAFE) ---
+        case 'w':
+        case 'W':
+          moveCamera('forward', moveSpeed);
+          handled = true;
+          break;
+        case 's':
+        case 'S':
+          moveCamera('backward', moveSpeed);
+          handled = true;
+          break;
+        case 'a':
+        case 'A':
+          moveCamera('left', moveSpeed);
+          handled = true;
+          break;
+        case 'd':
+        case 'D':
+          moveCamera('right', moveSpeed);
+          handled = true;
+          break;
+        case 'q':
+        case 'Q':
+          moveCamera('down', moveSpeed - 5);
+          handled = true;
+          break;
+        case 'e':
+        case 'E':
+          moveCamera('up', moveSpeed - 5);
+          handled = true;
+          break;
+
+        // --- CAMERA ROTATION (LOOK AROUND) ---
+        case 'ArrowUp':
+          paramsRef.current.lat = Math.min(85, paramsRef.current.lat + step);
+          handled = true;
+          break;
+        case 'ArrowDown':
+          paramsRef.current.lat = Math.max(-85, paramsRef.current.lat - step);
+          handled = true;
+          break;
+        case 'ArrowLeft':
+          paramsRef.current.lon -= step;
+          handled = true;
+          break;
+        case 'ArrowRight':
+          paramsRef.current.lon += step;
+          handled = true;
+          break;
+        case '+':
+        case '=':
+          const plusFov = Math.max(30, paramsRef.current.fov - 4);
+          paramsRef.current.fov = plusFov;
+          setCurrentFov(Math.round(plusFov));
+          handled = true;
+          break;
+        case '-':
+        case '_':
+          const minusFov = Math.min(110, paramsRef.current.fov + 4);
+          paramsRef.current.fov = minusFov;
+          setCurrentFov(Math.round(minusFov));
+          handled = true;
+          break;
+        case 'r':
+        case 'R':
+          paramsRef.current.lat = 0;
+          paramsRef.current.lon = 180;
+          paramsRef.current.fov = 75;
+          paramsRef.current.posX = 0;
+          paramsRef.current.posY = 0;
+          paramsRef.current.posZ = 0;
+          setCurrentFov(75);
+          setCurrentCoords({ x: 0, y: 0, z: 0 });
+          handled = true;
+          break;
+      }
+      if (handled) {
+        e.preventDefault();
+      }
+    };
+
     const canvasEl = canvasRef.current;
     canvasEl.addEventListener('pointerdown', onPointerDown);
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
+    canvasEl.addEventListener('wheel', onWheel, { passive: false });
+    window.addEventListener('keydown', onKeyDown);
 
     // 7. Observer Resize logic
     const handleResize = () => {
@@ -1103,6 +1378,8 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
       canvasEl.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
+      canvasEl.removeEventListener('wheel', onWheel);
+      window.removeEventListener('keydown', onKeyDown);
       
       // Clear 3D models from the group and dispose of geometries/materials safely to avoid memory leak
       while (model3DGroup.children.length > 0) {
@@ -1239,9 +1516,288 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
           )}
 
           {/* Canvas Bottom Instructions */}
-          <div className="absolute bottom-4 left-4 bg-black/80 border border-white/15 rounded-lg px-2.5 py-1.5 pointer-events-none flex items-center gap-2 backdrop-blur-md shadow-2xl">
+          <div className="absolute bottom-4 left-4 bg-black/80 border border-white/15 rounded-lg px-2.5 py-1.5 pointer-events-none flex items-center gap-2 backdrop-blur-md shadow-2xl z-20">
             <Move size={12} className="text-neon-blue animate-bounce" />
-            <span className="text-[8px] text-white/80 font-mono tracking-widest uppercase">Arrastra para girar libremente la cámara 360°</span>
+            <span className="text-[8px] text-white/80 font-mono tracking-widest uppercase">Arrastra o usa controles para explorar 360°</span>
+          </div>
+
+          {/* Scientific Immersive HUD VR Navigation Controls */}
+          <div className="absolute bottom-4 right-4 z-20 flex flex-col items-end gap-2 text-white max-w-[190px] sm:max-w-[210px]">
+            {/* HUD Glass Box */}
+            <div className="bg-black/90 border border-white/10 backdrop-blur-md p-2.5 sm:p-3 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.85)] w-full flex flex-col gap-2.5 transition-all duration-300 hover:border-neon-blue/40 hover:shadow-[0_8px_32px_rgba(0,195,255,0.15)] select-none">
+              
+              <div className="flex items-center justify-between border-b border-white/10 pb-1.5">
+                <div className="flex items-center gap-1">
+                  <Compass size={11} className="text-neon-blue animate-spin" style={{ animationDuration: '4s' }} />
+                  <span className="text-[8px] sm:text-[9.5px] font-orbitron font-extrabold tracking-widest text-[#00d1ff] uppercase">Navegación VR</span>
+                </div>
+                <div className="relative group/key font-mono text-[7.5px] bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-white/40 flex items-center gap-1 cursor-help hover:text-white transition-all">
+                  <Keyboard size={9} />
+                  <span>Teclas</span>
+                  {/* Tooltip */}
+                  <div className="absolute bottom-full right-0 mb-2 w-48 p-2.5 bg-neutral-950 border border-white/15 rounded-lg text-[8px] text-white/80 leading-relaxed font-sans normal-case pointer-events-none opacity-0 invisible group-hover/key:opacity-100 group-hover/key:visible transition-all z-30 shadow-2xl">
+                    <p className="font-bold text-neon-blue mb-1 uppercase tracking-wider">Controles de Teclado:</p>
+                    <ul className="space-y-1 list-none font-mono text-[7.5px]">
+                      <li><b className="text-white">WASD</b> : Caminar y Desplazarse</li>
+                      <li><b className="text-white">Q / E</b> : Descender / Ascender</li>
+                      <li><b className="text-white">↑↓←→</b> : Rotar Cámara 360°</li>
+                      <li><b className="text-white">R</b> : Restablecer Posición y Vista</li>
+                      <li><b className="text-white">+ / -</b> : Ajustar Zoom (Lente)</li>
+                      <li><b className="text-white">Rueda Scroll</b> : Zoom Continuo</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              {/* HUD Mode Tabs Toggle */}
+              <div className="grid grid-cols-2 gap-1 bg-white/5 p-0.5 rounded-lg border border-white/5">
+                <button
+                  type="button"
+                  onClick={() => setHudMode('look')}
+                  className={`py-1 text-[7.5px] font-extrabold uppercase rounded transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                    hudMode === 'look'
+                      ? 'bg-neon-blue/25 text-neon-blue border border-neon-blue/25 shadow-[0_0_8px_rgba(0,209,255,0.1)]'
+                      : 'text-white/40 hover:text-white'
+                  }`}
+                >
+                  <RotateCcw size={9} />
+                  <span>Mirar 🔄</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHudMode('move')}
+                  className={`py-1 text-[7.5px] font-extrabold uppercase rounded transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                    hudMode === 'move'
+                      ? 'bg-neon-blue/25 text-neon-blue border border-neon-blue/25 shadow-[0_0_8px_rgba(0,209,255,0.1)]'
+                      : 'text-white/40 hover:text-white'
+                  }`}
+                >
+                  <Move size={9} />
+                  <span>Mover 🚶</span>
+                </button>
+              </div>
+
+              {hudMode === 'look' ? (
+                <>
+                  {/* Directional Pad (D-pad) Look controls */}
+                  <div className="flex justify-center py-0.5">
+                    <div className="relative w-[90px] h-[90px] sm:w-[100px] sm:h-[100px] rounded-full bg-neutral-950/60 border border-white/10 shadow-inner flex items-center justify-center">
+                      {/* Inner ring helper */}
+                      <div className="absolute w-[50px] h-[50px] sm:w-[56px] sm:h-[56px] rounded-full border border-white/5 pointer-events-none" />
+
+                      {/* UP BUTTON */}
+                      <button
+                        type="button"
+                        onClick={handleLookUp}
+                        className="absolute top-1 left-1/2 -translate-x-1/2 w-7 h-6 rounded-t-full flex items-center justify-center text-white/55 hover:text-neon-blue hover:bg-white/5 transition-all outline-none cursor-pointer"
+                        title="Mirar Arriba (Teclado: ↑)"
+                      >
+                        <ChevronUp size={14} className="transition-transform hover:-translate-y-0.5" />
+                      </button>
+
+                      {/* LEFT BUTTON */}
+                      <button
+                        type="button"
+                        onClick={handleLookLeft}
+                        className="absolute left-1 top-1/2 -translate-y-1/2 w-6 h-7 rounded-l-full flex items-center justify-center text-white/55 hover:text-neon-blue hover:bg-white/5 transition-all outline-none cursor-pointer"
+                        title="Girar Izquierda (Teclado: ←)"
+                      >
+                        <ChevronLeft size={14} className="transition-transform hover:-translate-x-0.5" />
+                      </button>
+
+                      {/* RIGHT BUTTON */}
+                      <button
+                        type="button"
+                        onClick={handleLookRight}
+                        className="absolute right-1 top-1/2 -translate-y-1/2 w-6 h-7 rounded-r-full flex items-center justify-center text-white/55 hover:text-neon-blue hover:bg-white/5 transition-all outline-none cursor-pointer"
+                        title="Girar Derecha (Teclado: →)"
+                      >
+                        <ChevronRight size={14} className="transition-transform hover:translate-x-0.5" />
+                      </button>
+
+                      {/* DOWN BUTTON */}
+                      <button
+                        type="button"
+                        onClick={handleLookDown}
+                        className="absolute bottom-1 left-1/2 -translate-x-1/2 w-7 h-6 rounded-b-full flex items-center justify-center text-white/55 hover:text-neon-blue hover:bg-white/5 transition-all outline-none cursor-pointer"
+                        title="Mirar Abajo (Teclado: ↓)"
+                      >
+                        <ChevronDown size={14} className="transition-transform hover:translate-y-0.5" />
+                      </button>
+
+                      {/* RESET CENTRAL BUTTON */}
+                      <button
+                        type="button"
+                        onClick={handleResetView}
+                        className="z-10 w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-neutral-900 border border-white/15 flex flex-col items-center justify-center text-white/60 hover:text-neon-blue hover:scale-110 active:scale-95 transition-all shadow-md outline-none hover:border-neon-blue/50 cursor-pointer"
+                        title="Recentrar Vista & Reseteo General (R)"
+                      >
+                        <RotateCcw size={10} />
+                        <span className="text-[5.5px] sm:text-[6px] font-bold uppercase tracking-widest mt-0.5">Reset</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Zoom & Expansion control */}
+                  <div className="flex flex-col gap-1 border-t border-white/5 pt-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[7.5px] text-white/40 uppercase tracking-widest font-bold">Zoom Lente:</span>
+                      <span className="text-[8px] sm:text-[8.5px] font-mono text-neon-blue font-black tracking-wide">
+                        {currentFov}° <b className="text-white/40 font-normal">({(75 / currentFov).toFixed(1)}x)</b>
+                      </span>
+                    </div>
+                    
+                    <div className="flex items-center justify-between gap-1.5 bg-neutral-950 p-1 rounded-lg border border-white/5">
+                      <button
+                        type="button"
+                        onClick={handleZoomOut}
+                        disabled={currentFov >= 110}
+                        className="p-1 rounded bg-white/5 hover:bg-white/10 text-white/55 hover:text-white disabled:opacity-20 transition-all outline-none cursor-pointer"
+                        title="Ventanear / Alejar (-)"
+                      >
+                        <ZoomOut size={11} />
+                      </button>
+                      
+                      {/* Visual tracker scrollbar */}
+                      <div className="flex-1 h-1 bg-white/10 rounded-full overflow-hidden relative">
+                        <div 
+                          className="absolute top-0 bottom-0 bg-neon-blue left-0 rounded-full transition-all duration-300" 
+                          style={{ width: `${((110 - currentFov) / 80) * 100}%` }}
+                        />
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleZoomIn}
+                        disabled={currentFov <= 30}
+                        className="p-1 rounded bg-white/5 hover:bg-white/10 text-white/55 hover:text-white disabled:opacity-20 transition-all outline-none cursor-pointer"
+                        title="Focalizar / Acercar (+)"
+                      >
+                        <ZoomIn size={11} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Autopilot quick navigation */}
+                  <div className="flex items-center justify-between border-t border-white/5 pt-1.5 text-[7.5px]">
+                    <span className="text-white/40 uppercase font-bold tracking-widest">Giro Continuo:</span>
+                    <button
+                      type="button"
+                      onClick={() => setAutoRotate(!autoRotate)}
+                      className={`px-2 py-0.5 rounded text-[8px] font-extrabold uppercase tracking-wider border transition-all cursor-pointer ${
+                        autoRotate 
+                          ? 'border-neon-blue bg-neon-blue/15 text-neon-blue shadow-[0_0_8px_rgba(0,209,255,0.08)]' 
+                          : 'border-white/10 text-white/40 hover:text-white bg-black/20'
+                      }`}
+                    >
+                      {autoRotate ? 'ESCANEANDO' : 'DETENIDO'}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Directional Pad Walk controls */}
+                  <div className="flex justify-center py-0.5">
+                    <div className="relative w-[90px] h-[90px] sm:w-[100px] sm:h-[100px] rounded-full bg-neutral-950/60 border border-white/10 shadow-inner flex items-center justify-center">
+                      <div className="absolute w-[50px] h-[50px] sm:w-[56px] sm:h-[56px] rounded-full border border-white/5 pointer-events-none" />
+
+                      {/* UP BUTTON (Walk Forward) */}
+                      <button
+                        type="button"
+                        onClick={() => moveCamera('forward', 25)}
+                        className="absolute top-1 left-1/2 -translate-x-1/2 w-7 h-6 rounded-t-full flex items-center justify-center text-white/55 hover:text-[#00ffd1] hover:bg-white/5 transition-all outline-none cursor-pointer"
+                        title="Caminar Adelante (W)"
+                      >
+                        <ChevronUp size={14} className="transition-transform hover:-translate-y-0.5 text-[#00ffd1]" />
+                      </button>
+
+                      {/* LEFT BUTTON (Strafe Left) */}
+                      <button
+                        type="button"
+                        onClick={() => moveCamera('left', 25)}
+                        className="absolute left-1 top-1/2 -translate-y-1/2 w-6 h-7 rounded-l-full flex items-center justify-center text-white/55 hover:text-[#00ffd1] hover:bg-white/5 transition-all outline-none cursor-pointer"
+                        title="Desplazarse a la Izquierda (A)"
+                      >
+                        <ChevronLeft size={14} className="transition-transform hover:-translate-x-0.5 text-[#00ffd1]" />
+                      </button>
+
+                      {/* RIGHT BUTTON (Strafe Right) */}
+                      <button
+                        type="button"
+                        onClick={() => moveCamera('right', 25)}
+                        className="absolute right-1 top-1/2 -translate-y-1/2 w-6 h-7 rounded-r-full flex items-center justify-center text-white/55 hover:text-[#00ffd1] hover:bg-white/5 transition-all outline-none cursor-pointer"
+                        title="Desplazarse a la Derecha (D)"
+                      >
+                        <ChevronRight size={14} className="transition-transform hover:translate-x-0.5 text-[#00ffd1]" />
+                      </button>
+
+                      {/* DOWN BUTTON (Walk Backward) */}
+                      <button
+                        type="button"
+                        onClick={() => moveCamera('backward', 25)}
+                        className="absolute bottom-1 left-1/2 -translate-x-1/2 w-7 h-6 rounded-b-full flex items-center justify-center text-white/55 hover:text-[#00ffd1] hover:bg-white/5 transition-all outline-none cursor-pointer"
+                        title="Retroceder (S)"
+                      >
+                        <ChevronDown size={14} className="transition-transform hover:translate-y-0.5 text-[#00ffd1]" />
+                      </button>
+
+                      {/* RESET CENTRAL BUTTON (Reset Translation Position) */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          paramsRef.current.posX = 0;
+                          paramsRef.current.posY = 0;
+                          paramsRef.current.posZ = 0;
+                          setCurrentCoords({ x: 0, y: 0, z: 0 });
+                        }}
+                        className="z-10 w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-neutral-900 border border-white/15 flex flex-col items-center justify-center text-white/60 hover:text-emerald-400 hover:scale-110 active:scale-95 transition-all shadow-md outline-none hover:border-[#00ffd1]/50 cursor-pointer"
+                        title="Volver al Centro"
+                      >
+                        <RotateCcw size={10} className="text-[#00ffd1]" />
+                        <span className="text-[5.5px] sm:text-[6px] font-bold uppercase tracking-widest mt-0.5 text-[#00ffd1]">Origen</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Elevation Flight controls (Up & Down) */}
+                  <div className="flex flex-col gap-1 border-t border-white/5 pt-2">
+                    <span className="text-[7.5px] text-white/40 uppercase tracking-widest font-bold font-orbitron">Elevación:</span>
+                    <div className="grid grid-cols-2 gap-1.5 p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => moveCamera('down', 15)}
+                        className="flex items-center justify-center gap-1 py-1 sm:py-1.5 rounded bg-white/5 hover:bg-white/10 hover:text-[#00ffd1] text-white/55 text-[8px] uppercase tracking-wider transition-all outline-none cursor-pointer font-bold"
+                        title="Descender (Q)"
+                      >
+                        <ChevronDown size={11} /> Descender Q
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveCamera('up', 15)}
+                        className="flex items-center justify-center gap-1 py-1 sm:py-1.5 rounded bg-white/5 hover:bg-white/10 hover:text-[#00ffd1] text-white/55 text-[8px] uppercase tracking-wider transition-all outline-none cursor-pointer font-bold"
+                        title="Ascender (E)"
+                      >
+                        <ChevronUp size={11} /> Ascender E
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Coordinates scientific indicator readout overlay */}
+              <div className="border-t border-white/10 pt-1.5 flex flex-col gap-0.5 bg-black/40 p-1.5 rounded-lg border border-white/5">
+                <div className="flex items-center justify-between text-[7.5px] font-mono tracking-widest text-white/40 uppercase">
+                  <span>Posición 3D (WASD):</span>
+                  <span className="text-[#00ffd1] font-bold font-orbitron text-[8px] animate-pulse">GPS ON</span>
+                </div>
+                <div className="grid grid-cols-3 gap-1 text-center bg-black p-1 rounded border border-white/5 text-[9px] font-mono font-extrabold text-neon-blue tracking-wider">
+                  <div>X: <span className={currentCoords.x !== 0 ? "text-[#00ffd1]" : "text-white/40"}>{currentCoords.x}</span></div>
+                  <div>Y: <span className={currentCoords.y !== 0 ? "text-[#00ffd1]" : "text-white/40"}>{currentCoords.y}</span></div>
+                  <div>Z: <span className={currentCoords.z !== 0 ? "text-[#00ffd1]" : "text-white/40"}>{currentCoords.z}</span></div>
+                </div>
+              </div>
+
+            </div>
           </div>
 
           {/* Floating HUD controls directly inside viewport */}
@@ -1528,7 +2084,7 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
                     {onPublishMetaAds && (
                       <button
                         type="button"
-                        onClick={() => onPublishMetaAds(backgroundImageUrl)}
+                        onClick={() => onPublishMetaAds(backgroundImageUrl || "")}
                         className="w-full py-2 px-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-[9.5px] font-bold uppercase rounded-lg border border-white/10 hover:shadow-[0_0_15px_rgba(59,130,246,0.35)] transition-all flex items-center justify-center gap-2 cursor-pointer"
                       >
                         <Sparkles size={12} className="text-neon-blue animate-pulse" />
@@ -1692,72 +2248,21 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
                       )}
                     </div>
 
-                    {/* Estilo / Texturizado */}
+                    {/* Giro and rotation Speed (Made full-width since styling options are hidden) */}
                     <div>
-                      <label className="text-[8px] text-white/40 uppercase tracking-widest font-bold block mb-1">Acabado / Material</label>
-                      <div className="grid grid-cols-3 gap-1">
-                        <button
-                          type="button"
-                          onClick={() => setModel3DStyle('wireframe')}
-                          className={`py-1 rounded text-[8.5px] uppercase font-bold border transition-all ${
-                            model3DStyle === 'wireframe' ? "border-neon-blue bg-neon-blue/10 text-neon-blue font-black" : "border-white/5 bg-black/20 text-white/50 hover:text-white"
-                          }`}
-                        >
-                          Estructura
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setModel3DStyle('glowing')}
-                          className={`py-1 rounded text-[8.5px] uppercase font-bold border transition-all ${
-                            model3DStyle === 'glowing' ? "border-neon-blue bg-neon-blue/10 text-neon-blue font-black" : "border-white/5 bg-black/20 text-white/50 hover:text-white"
-                          }`}
-                        >
-                          Glow Neón
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setModel3DStyle('solid')}
-                          className={`py-1 rounded text-[8.5px] uppercase font-bold border transition-all ${
-                            model3DStyle === 'solid' ? "border-neon-blue bg-neon-blue/10 text-neon-blue font-black" : "border-white/5 bg-black/20 text-white/50 hover:text-white"
-                          }`}
-                        >
-                          Metalizado
-                        </button>
+                      <div className="flex justify-between text-[8px] text-white/40 uppercase tracking-widest font-bold mb-1">
+                        <span>Giro de Producto (Rotación):</span>
+                        <span className="text-neon-blue font-mono font-black">{model3DRotationSpeed}x</span>
                       </div>
-                    </div>
-
-                    {/* Color y Rotación speed */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-[8px] text-white/40 uppercase tracking-widest font-bold block mb-1">Color Modelo</label>
-                        <select 
-                          value={model3DColor} 
-                          onChange={(e) => setModel3DColor(e.target.value)}
-                          className="w-full bg-black/60 border border-white/10 rounded px-1 py-1 text-[10px] text-white outline-none focus:border-neon-blue"
-                        >
-                          <option value="#00d1ff">Cian Neón</option>
-                          <option value="#34d399">Esmeralda</option>
-                          <option value="#f43f5e">Rosa Neón</option>
-                          <option value="#f59e0b">Ámbar</option>
-                          <option value="#a855f7">Púrpura</option>
-                          <option value="#ffffff">Blanco</option>
-                        </select>
-                      </div>
-                      <div>
-                        <div className="flex justify-between text-[8px] text-white/40 uppercase tracking-widest font-bold mb-1">
-                          <span>Giro:</span>
-                          <span className="text-neon-blue font-mono font-black">{model3DRotationSpeed}x</span>
-                        </div>
-                        <input 
-                          type="range" 
-                          min="0" 
-                          max="4" 
-                          step="0.5"
-                          value={model3DRotationSpeed}
-                          onChange={(e) => setModel3DRotationSpeed(Number(e.target.value))}
-                          className="w-full accent-neon-blue cursor-pointer h-1 bg-black rounded"
-                        />
-                      </div>
+                      <input 
+                        type="range" 
+                        min="0" 
+                        max="4" 
+                        step="0.5"
+                        value={model3DRotationSpeed}
+                        onChange={(e) => setModel3DRotationSpeed(Number(e.target.value))}
+                        className="w-full accent-neon-blue cursor-pointer h-1 bg-black rounded"
+                      />
                     </div>
 
                     {/* Sección Integradora de Parámetros Físicos VR */}

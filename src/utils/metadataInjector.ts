@@ -26,6 +26,7 @@ export function injectGPanoMetadata(jpegBytes: Uint8Array, width: number, height
   <rdf:Description rdf:about="" xmlns:GPano="http://ns.google.com/photos/1.0/panorama/">
    <GPano:ProjectionType>equirectangular</GPano:ProjectionType>
    <GPano:UsePanoramaViewer>True</GPano:UsePanoramaViewer>
+   <GPano:StereoMode>mono</GPano:StereoMode>
    <GPano:CroppedAreaImageWidthPixels>${width}</GPano:CroppedAreaImageWidthPixels>
    <GPano:CroppedAreaImageHeightPixels>${height}</GPano:CroppedAreaImageHeightPixels>
    <GPano:FullPanoWidthPixels>${width}</GPano:FullPanoWidthPixels>

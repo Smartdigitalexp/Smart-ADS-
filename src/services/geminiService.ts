@@ -404,42 +404,61 @@ export async function generateStorytellingPrompt(
   storytellingText: string,
   duration: 5 | 10 = 5,
   audience?: string,
-  cta?: string
+  cta?: string,
+  objective?: string,
+  productName?: string,
+  creativeConcept?: string
 ): Promise<string> {
   const promptResponse = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: `
-    STORYTELLING / SCRIPT:
+    OBJETIVO DE LA CAMPAÑA: "${objective || 'N/A'}"
+    PRODUCTO: "${productName || 'N/A'}"
+    CONCEPTO CREATIVO: "${creativeConcept || 'N/A'}"
+    AUDIENCIA OBJETIVO: "${audience || 'General'}"
+    DURACIÓN TOTAL SOLICITADA: ${duration} segundos.
+    
+    GUION / STORYTELLING DE ENTRADA:
     "${storytellingText}"
     
-    CALL TO ACTION FINAL:
+    LLAMADO A LA ACCIÓN (CTA):
     "${cta || ''}"
-    
-    AUDIENCIA: ${audience || 'General'}
-    DURACIÓN: ${duration} segundos.
-    
-    TAREA:
-    Eres un Director de Cine y Experto en VFX de Clase Mundial. Tu misión es transformar el storytelling y el CTA anterior en un PROMPT TÉCNICO MAESTRO para una IA de generación de video (Luma, Sora, Kling).
-    
-    ESTRUCTURA OBLIGATORIA DEL PROMPT (Fórmula Maestra):
-    [Sujeto] + [Acción] + [Escenario] + [Movimiento de cámara] + [Lente] + [Iluminación] + [Estilo visual] + [Parámetros técnicos]
-    
-    VARIABLES TÉCNICAS A CONSIDERAR POR BLOQUE:
-    1. CONCEPTO (Intención): Define la emoción (Inspiración, Suspenso, Deseo, Exclusividad, Innovación, Confianza).
-    2. SUJETO: Descripción precisa (quién/qué, apariencia, vestuario, expresión, actitud).
-    3. ESCENARIO: Ubicación, época, detalles arquitectónicos y elementos secundarios.
-    4. CINEMATOGRAFÍA (CRÍTICO): 
-       - Movimiento: Dolly in/out, Tracking shot, Orbit, Crane up, Push in, Handheld, Slow pan, Tilt up/down.
-       - Lente: 24mm (amplitud), 35mm (natural), 50mm (cinematográfico equilibrado), 85mm (retrato premium), Macro.
-       - Profundidad: Shallow depth of field, Rack focus, Deep focus.
-    5. ILUMINACIÓN: Soft light, Volumetric lighting, Neon glow, Studio lighting, Rim light, Golden hour.
-    6. ESTILO VISUAL: Cinematic luxury, Hyperrealistic, Apple-style minimalism, Sci-fi realism, Fashion editorial.
-    7. PARÁMETROS: 4K, 24fps (cine), 60fps, 120fps (slow motion), Ultra-detailed, Cinematic motion blur.
 
-    PRINCIPIO DE DIRECCIÓN:
-    El personaje principal DEBE estar realizando LIP-SYNC (sincronización labial) de TODO el guion (storytelling + CTA). El personaje debe actuar con naturalidad dentro del escenario mientras narra la historia.
-    
-    Responde ÚNICAMENTE con el prompt técnico completo en INGLÉS (para máxima compatibilidad con modelos SOTA) siguiendo la Fórmula Maestra en un solo párrafo narrativo descriptivo de altísima calidad.
+    TAREA:
+    Eres un Director de Cine, Diseñador y Productor de Spot Comerciales de Alto Rendimiento para Marcas Premium.
+    Tu misión es realizar un análisis estratégico y de storytelling para diseñar un spot de video publicitario de nivel cinematográfico, estructurando un Storyboard detallado paso a paso según la duración solicitada y entregando un "prompt" maestro consolidado.
+
+    REGLAS DE STORYBOARD POR DURACIÓN:
+    - Si la duración total es de 5 segundos: Crea exactamente 2 escenas de 2.5 segundos cada una.
+    - Si la duración total es de 10 segundos: Crea exactamente 4 escenas de 2.5 segundos cada una.
+    Cada escena debe tener una duración máxima de 2.5 segundos, asegurando transiciones lógicas y coherencia absoluta con el Storytelling y concepto del producto.
+
+    DEBES ANALIZAR Y DETALLAR EN CADA ESCENA DEL STORYBOARD:
+    1. Movimientos de Cámara, Encuadre y Enfoque: Encuadres dinámicos del producto (planos detalle, macros, perspectivas de 3/4), movimientos de cámara precisos (dolly zoom, push in, orbit panorámica) para destacar el producto de forma glorificada, y enfoque con poca profundidad de campo (shallow depth of field) o rack focus profesional.
+    2. Iluminación Profesional: Uso de luz natural suave o de estudio artificial sofisticada para dar volumen tridimensional, textura física perfecta y el "look" deseado, marcando la diferencia con un acabado altamente profesional.
+    3. Sonido Envolvente y Voces: Voces en off sugestivas, tono de narración y efectos de sonido ambiente específicos acordes a la escena.
+    4. Musicalización y Efectos Foley: Mezcla de voces con música de fondo refinada (libre de derechos) y efectos de sonido físicos (Foley) como sonidos metálicos, clics, líquidos o deslizamientos con niveles de volumen específicos y balanceados.
+    5. Colorimetría y Etalonaje: Definición del esquema cromático, contraste y brillo de cada toma para mantener una estética uniforme y cinematográfica constante en todas las escenas.
+
+    FORMATO DE SALIDA REQUERIDO (responde exactamente en este orden, estructurado con markdown claro para una visualización espectacular):
+
+    # 📊 ANÁLISIS ESTRATÉGICO DE STORYTELLING
+    [Analiza cómo la estrategia creativa y el storytelling capturan la atención, fomentan el deseo de la audiencia seleccionada y cumplen el objetivo publicitario dentro del marco temporal.]
+
+    # 🎬 STORYBOARD DETALLADO DE ALTA GAMA (Escenas de 2.5s)
+    [Lista cada una de las escenas necesarias para completar los ${duration} segundos totales, cada una con una duración constante de 2.5 segundos.]
+
+    ### 🎞️ Escena 1 (0.0s - 2.5s)
+    - **Visual (Cámara y Enfoque)**: [ej. Plano detalle del producto, dolly zoom lento...]
+    - **Iluminación**: [ej. Luz de rim light y iluminación volumétrica de estudio suave...]
+    - **Sonido e Voces**: [ej. Voz suave narrando el inicio del guion con base espacial...]
+    - **Foley y Música**: [ej. Sonido metálico tenue de fondo Foley y música orquestal in crescendo...]
+    - **Colorimetría**: [ej. Paleta cálida dorada con contraste cinematográfico...]
+
+    ...
+
+    # 📝 PROMPT TÉCNICO CONSOLIDADO PARA GENERACIÓN (ENGLISH)
+    [Proporciona un único y extremadamente detallado prompt técnico continuo en INGLÉS diseñado para modelos de generación SOTA de video como Veo o Kling. Este debe condensar todo el desarrollo del storyboard secuencialmente, detallando los encuadres, iluminaciones de volumen 3D, colorimetría, foley/musicalización sugerida implícitamente, textura realista, 8k de ultra definición y transiciones impecables en un solo bloque fluido y continuo.]
     `
   });
   return promptResponse.text?.trim() || "";
@@ -535,19 +554,20 @@ export async function generateImageFromPrompt(
   ];
 
   const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash-image",
+    model: is360 ? "gemini-3.1-flash-image-preview" : "gemini-2.5-flash-image",
     contents: contents,
     config: {
       imageConfig: {
-        aspectRatio: aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : is360 ? "16:9" : "1:1"
+        aspectRatio: aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : is360 ? "16:9" : "1:1",
+        ...(is360 ? { imageSize: "4K" } : { imageSize: "1K" })
       },
       systemInstruction: is360
         ? `Genera una imagen panorámica de realidad virtual de 360 grados en proyección equirrectangular pura de CALIDAD ULTRA DE ALTA DEFINICIÓN 8K (7680x3840) para Meta Ads inmersivos.
-        REGLAS CRÍTICAS DE ENCUADRE Y CALIDAD 8K PARA PANORAMAS:
-        1. RELACIÓN EQUIRRECTANGULAR PERFECTA: La imagen debe diseñarse en una relación de aspecto matemática perfecta de 2:1 que represente la esfera completa (360° horizontal x 180° vertical).
+        REGLAS CRÍTICAS DE ENCUADRE Y CALIDAD DE ALTA DEFINICIÓN PARA PANORAMAS:
+        1. RELACIÓN EQUIRRECTANGULAR PERFECTA: La imagen debe diseñarse en una relación de aspecto que represente la esfera completa de manera fluida (360° horizontal x 180° vertical).
         2. ACOPLAMIENTO DE EXTREMOS 100% INVISIBLE: El extremo de la extrema izquierda (x=0) y el extremo de la extrema derecha (x=ancho) deben coincidir milimétricamente en iluminación, texturas, colores y líneas de guía espacial para crear una costura totalmente seamless libre de cortes o parpadeos durante el giro.
-        3. Horizonte perfectamente recto, centrado verticalmente y equilibrado.
-        4. Fidelidad tridimensional suprema, texturas nítidas hiper-glorificadas e iluminación fotorrealista para una inmersión VR absoluta de 8K.`
+        3. Horizonte perfectamente recto, centrado verticalmente y equilibrado. Evita cualquier distorsión aberrante en el centro de visión.
+        4. Fidelidad tridimensional suprema de súper alta resolución 8K, texturas nítidas hiper-glorificadas, microdetalles ultra-definidos de alta frecuencia y sin grano ni pixelado para una inmersión VR absoluta de grado premium.`
         : `Genera una imagen publicitaria premium. 
         REGLA DE ORO (ENCUADRE): La imagen debe ser FULL-BLEED, llenando el 100% de la relación (${aspectRatio}).
         REGLA DE PERSONIFICACIÓN ACTIVA: Incluye a la audiencia objetivo REALIZANDO una acción física y real propia de su contexto profesional o de estilo de vida, integrada orgánicamente con el producto.

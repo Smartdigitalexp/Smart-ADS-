@@ -35,7 +35,7 @@ export function Product3DModeler({
 }: Product3DModelerProps) {
   // Input file uploading ref and local state
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [localImage, setLocalImage] = useState<string | null>(initialImage);
+  const [localImage, setLocalImage] = useState<string | null>(null);
   
   // Canvas refs
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -49,7 +49,7 @@ export function Product3DModeler({
   // Modeler specific configurations - optimized automatic defaults for high fidelity PBR volumetric modeling
   const [volumeType, setVolumeType] = useState<'extruded' | 'card_pbr' | 'cylinder' | 'hologram'>(() => {
     const val = localStorage.getItem('product_3d_volume_type');
-    return (val as 'extruded' | 'card_pbr' | 'cylinder' | 'hologram') || 'extruded';
+    return (val as 'extruded' | 'card_pbr' | 'cylinder' | 'hologram') || 'card_pbr';
   });
   const [metallic, setMetallic] = useState<number>(() => {
     const val = localStorage.getItem('product_3d_metallic');
@@ -68,7 +68,7 @@ export function Product3DModeler({
   const [autoRotate, setAutoRotate] = useState<boolean>(true);
   const [meshThickness, setMeshThickness] = useState<number>(() => {
     const val = localStorage.getItem('product_3d_mesh_thickness');
-    return val ? parseFloat(val) : 4;
+    return val ? parseFloat(val) : 10;
   }); // depth scale
   const [specularLevel, setSpecularLevel] = useState<number>(0.85);
   const [rotationSpeed, setRotationSpeed] = useState<number>(1);
@@ -82,6 +82,13 @@ export function Product3DModeler({
     const val = localStorage.getItem('product_3d_physics_friction');
     return val ? parseFloat(val) : 0.25;
   });
+
+  // Sync initialImage visual reference when it updates in parent
+  useEffect(() => {
+    // Isolated localImage behavior - no automatic reference image attachment
+    setVolumeType('card_pbr');
+    setMeshThickness(10);
+  }, [initialImage]);
 
   useEffect(() => {
     localStorage.setItem('product_3d_volume_type', volumeType);
@@ -115,6 +122,50 @@ export function Product3DModeler({
   const [pitch, setPitch] = useState<number>(0); // X-axis
   const [yaw, setYaw] = useState<number>(0);   // Y-axis
   const [roll, setRoll] = useState<number>(0);  // Z-axis
+
+  // Automated integration of the active 3D model into 360 viewer tools
+  const lastIntegratedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!localImage) return;
+
+    // Trigger capture once WebGL updates and renders
+    const timer = setTimeout(() => {
+      if (!canvasRef.current || !sceneRef.current || !rendererRef.current) return;
+      try {
+        const bgSphere = sceneRef.current.getObjectByName("bgSphereDome");
+        const gridHelper = sceneRef.current.getObjectByName("gridHelperVisual");
+        
+        const prevBgVis = bgSphere ? bgSphere.visible : false;
+        const prevGridVis = gridHelper ? gridHelper.visible : false;
+        
+        if (bgSphere) bgSphere.visible = false;
+        if (gridHelper) gridHelper.visible = false;
+        
+        let activeCam: THREE.Camera | null = null;
+        sceneRef.current.traverse((node) => {
+          if (node instanceof THREE.Camera) activeCam = node;
+        });
+        if (activeCam) rendererRef.current.render(sceneRef.current, activeCam);
+
+        const dataUrl = canvasRef.current.toDataURL('image/png');
+        
+        if (bgSphere) bgSphere.visible = prevBgVis;
+        if (gridHelper) gridHelper.visible = prevGridVis;
+        if (activeCam) rendererRef.current.render(sceneRef.current, activeCam);
+        
+        if (lastIntegratedRef.current !== dataUrl) {
+          lastIntegratedRef.current = dataUrl;
+          onApplyAsElement(dataUrl);
+          setStatusMessage('¡Modelo 3D integrado de forma automática en el visor 360°!');
+        }
+      } catch (e) {
+        console.error('Core auto-binding exception:', e);
+      }
+    }, 850); // Small delay to guarantee compilation & render pass complete
+
+    return () => clearTimeout(timer);
+  }, [localImage, volumeType, metallic, roughness, lightingStyle, accentColor, showWireframe, autoRotate, meshThickness, rotationSpeed, onApplyAsElement]);
 
   // Status logs
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
@@ -173,30 +224,12 @@ export function Product3DModeler({
     scene.add(mainGroup);
     groupRef.current = mainGroup;
 
-    // 3. Immersive VR 360 environment dome mesh (Spherical WebGL rendering)
-    const bgSphereGeo = new THREE.SphereGeometry(250, 60, 40);
-    bgSphereGeo.scale(-1, 1, 1); // Invert faces pointing inward
-    
-    // Choose texture URL: from state/prop or premium default fallback
-    const sphereBgUrl = background360Url || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1200&auto=format&fit=crop&q=80';
-    
-    const bgLoader = new THREE.TextureLoader();
-    bgLoader.load(sphereBgUrl, (tex) => {
-      tex.colorSpace = THREE.SRGBColorSpace;
-      const bgMaterial = new THREE.MeshBasicMaterial({
-        map: tex,
-        side: THREE.DoubleSide,
-        transparent: true,
-        opacity: 0.85
-      });
-      const bgSphere = new THREE.Mesh(bgSphereGeo, bgMaterial);
-      // Align sphere dome nicely
-      bgSphere.rotation.y = Math.PI;
-      scene.add(bgSphere);
-    }, undefined, (e) => console.error("Error loading immersive VR 360 sphere backdrop:", e));
+    // 3. Immersive background sphere removed to ensure perfectly transparent snapshots and product placements without any color leaks.
+    // The WebGL canvas renders with a transparent background only.
 
     // Optional subtle grid helper to show depth placement scale
     const gridHelper = new THREE.GridHelper(120, 30, 0x00d1ff, 0x444444);
+    gridHelper.name = "gridHelperVisual";
     gridHelper.position.y = -40;
     gridHelper.material.opacity = 0.2;
     gridHelper.material.transparent = true;
@@ -365,9 +398,6 @@ export function Product3DModeler({
       let mainMesh: THREE.Mesh;
 
       if (volumeType === 'extruded') {
-        // EXTRUDED ACCURATE VOLUMETRIC MODEL: By using texturedMaterial with transparent/alphaTest on ALL faces, 
-        // the transparent pixels from backdrop-keyer are completely empty everywhere, creating a physical 
-        // 3D product silhouette with full depth and no bounding black frames or plates whatsoever!
         const depth = meshThickness + 4;
         const geometry = new THREE.BoxGeometry(width, height, depth);
         
@@ -683,7 +713,6 @@ export function Product3DModeler({
       
       // Execute parent callback triggers to integrate beautifully across workspace
       onApplyAsElement(dataUrl);
-      onPreviewCreated(dataUrl);
       
       setShowSuccessToast(true);
       setStatusMessage('¡Modelo 3D acoplado con Inteligencia Artificial! Redirigiendo a tu entorno virtual 360°...');
@@ -737,135 +766,15 @@ export function Product3DModeler({
             <div className="space-y-3">
               <div 
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full py-6 border border-dashed border-white/10 rounded-xl hover:border-neon-blue/40 flex flex-col items-center justify-center gap-1.5 cursor-pointer bg-black/20"
+                className="w-full py-8 border border-dashed border-white/10 rounded-xl hover:border-neon-blue/40 flex flex-col items-center justify-center gap-1.5 cursor-pointer bg-black/20"
               >
                 <Upload className="text-neon-blue/40" size={24} />
                 <span className="text-[10px] text-white/40 uppercase tracking-wider font-extrabold">Haz clic para subir un producto plano</span>
                 <span className="text-[7.5px] text-white/20 uppercase tracking-widest leading-relaxed">PNG o JPG con fondo neutro</span>
               </div>
-
-              <div className="space-y-2 pt-2">
-                <span className="text-[7.5px] text-white/40 uppercase tracking-widest block font-bold">O selecciona una muestra de prueba:</span>
-                <div className="grid grid-cols-2 gap-2">
-                  {sampleProducts.map((p, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => handleSelectSample(p.url)}
-                      className="p-2 rounded-lg bg-white/5 border border-white/5 hover:bg-white/10 hover:border-white/10 text-left transition-all cursor-pointer"
-                    >
-                      <span className="text-[8.5px] font-bold text-white uppercase block truncate">{p.name}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
             </div>
           )}
         </div>
-
-        {/* 2. Parámetros de Colisión & Fricción (Simulación Física 3D) */}
-        {localImage && (
-          <div className="p-5 rounded-2xl bg-black/40 border border-white/5 space-y-4 animate-fade-in animate-glow">
-            <span className="text-[10px] text-white/50 uppercase tracking-[0.2em] font-black flex items-center gap-1.5 border-b border-white/5 pb-2.5">
-              <Sparkles className="text-neon-blue" size={14} /> 2. Propiedades de Colisión & Fricción
-            </span>
-            
-            <p className="text-[8.5px] text-white/50 uppercase leading-normal">
-              Domina la conducta física del producto al colocarse en superficies inmersivas del simulador VR 360°.
-            </p>
-
-            <div className="space-y-4">
-              {/* Elasticidad slider */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between items-center text-[9px] font-bold font-orbitron">
-                  <span className="text-white/60 uppercase text-[8px] tracking-wider">Coeficiente de Colisión (Bote / Rebote):</span>
-                  <span className="text-neon-blue font-mono text-[9.5px]">{(bounciness * 100).toFixed(0)}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={bounciness}
-                  onChange={(e) => setBounciness(parseFloat(e.target.value))}
-                  className="w-full accent-neon-blue h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
-                />
-                <span className="text-[7px] text-white/30 uppercase block">Determina la elasticidad de rebote con suelos y paredes en el simulador VR.</span>
-              </div>
-
-              {/* Fricción slider */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between items-center text-[9px] font-bold font-orbitron">
-                  <span className="text-white/60 uppercase text-[8px] tracking-wider">Coeficiente de Fricción (Desliz):</span>
-                  <span className="text-neon-blue font-mono text-[9.5px]">{(friction * 100).toFixed(0)}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={friction}
-                  onChange={(e) => setFriction(parseFloat(e.target.value))}
-                  className="w-full accent-neon-blue h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
-                />
-                <span className="text-[7px] text-white/30 uppercase block">Controla la resistencia física al deslizarse en superficies.</span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Simplified Tool Status explaining Automatic Volumetric Conversion */}
-        {localImage && (
-          <div className="p-5 rounded-2xl bg-black/40 border border-white/5 space-y-4 animate-fade-in">
-            <span className="text-[10px] text-neon-blue uppercase tracking-[0.2em] font-black flex items-center gap-1.5 border-b border-white/5 pb-2.5 mb-2">
-              <Sparkles className="text-neon-blue animate-pulse" size={14} /> Conversión Volumétrica Activa
-            </span>
-            <div className="space-y-3.5 text-white/75 text-[9px] uppercase tracking-wide leading-relaxed">
-              <p>
-                La Inteligencia Neural ha procesado automáticamente tu plano de producto utilizando un <strong className="text-white">Formato de Conversión Volumétrica Avanzado</strong>.
-              </p>
-              <div className="p-3 bg-neon-blue/5 border border-neon-blue/15 rounded-xl space-y-2">
-                <div className="flex justify-between items-center text-[8.5px]">
-                  <span className="text-white/40">CALIBRACIÓN ESTRUCTURAL:</span>
-                  <span className="text-neon-blue font-black font-mono">AUTOMÁTICA (100%)</span>
-                </div>
-                <div className="flex justify-between items-center text-[8.5px]">
-                  <span className="text-white/40">PROFUNDIDAD FÍSICA:</span>
-                  <span className="text-white font-mono">EXTRUSIÓN EXTRAPOLADA</span>
-                </div>
-                <div className="flex justify-between items-center text-[8.5px]">
-                  <span className="text-white/40">ESPECULARIDAD & CO-PBR:</span>
-                  <span className="text-white font-mono">REFLEJO ESPECULAR ACTIVO</span>
-                </div>
-                <div className="flex justify-between items-center text-[8.5px]">
-                  <span className="text-white/40">OPTIMIZACIÓN DE MALLA:</span>
-                  <span className="text-white font-mono">DOME-READY SPH-COLLISION</span>
-                </div>
-              </div>
-              <p className="text-white/40 text-[7.5px] leading-normal uppercase">
-                Para garantizar la más alta calidad de integración en tus imágenes o videos en 360 grados, todos los parámetros de iluminación especular, difusa y la física volumétrica del producto se han optimizado en tiempo real.
-              </p>
-            </div>
-            
-            {/* Elegant simplified toggle to view wireframe only */}
-            <div className="flex items-center justify-between pt-1 text-[9px] text-white/50 uppercase font-black border-t border-white/5 pt-3">
-              <span className="flex items-center gap-1">
-                <Palette size={10} className="text-neon-blue" /> Ver Estructura Alámbrica (Wireframe)
-              </span>
-              <button
-                type="button"
-                onClick={() => setShowWireframe(!showWireframe)}
-                className={`w-7 h-4 rounded-full relative transition-colors ${
-                  showWireframe ? 'bg-neon-blue' : 'bg-white/10'
-                }`}
-              >
-                <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-black transition-all ${
-                  showWireframe ? 'right-0.5' : 'left-0.5'
-                }`} />
-              </button>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* 3D WebGL Canvas Visualizer - Column Span 7 */}

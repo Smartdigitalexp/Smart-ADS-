@@ -1659,7 +1659,10 @@ export default function App() {
         text, 
         duration, 
         campaign.audience,
-        currentResult.captions.aida.action
+        currentResult.captions.aida.action,
+        campaign.objective,
+        campaign.productName,
+        campaign.creativeConcept
       );
       setToolPrompt(storytellingPrompt);
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -3607,44 +3610,6 @@ export default function App() {
                                       </button>
                                     </div>
                                   </div>
-
-                                  {/* Camera movement selection */}
-                                  <div className="space-y-2 border-t border-white/5 pt-3">
-                                    <div className="flex justify-between text-[8px] text-white/50 uppercase font-bold">
-                                      <span>Movimiento de Cámara (Opcional):</span>
-                                      {selectedCameraMovement && (
-                                        <button
-                                          type="button"
-                                          onClick={() => setSelectedCameraMovement(null)}
-                                          className="text-[8px] text-red-400 hover:text-red-300 transition-colors uppercase font-bold font-orbitron"
-                                        >
-                                          Restaurar
-                                        </button>
-                                      )}
-                                    </div>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1 custom-scrollbar">
-                                      {CAMERA_MOVEMENTS.map((movement) => {
-                                        const isSelected = selectedCameraMovement === movement.name;
-                                        return (
-                                          <button
-                                            key={movement.name}
-                                            type="button"
-                                            onClick={() => setSelectedCameraMovement(isSelected ? null : movement.name)}
-                                            className={cn(
-                                              "flex flex-col text-left p-2 rounded-lg border transition-all relative overflow-hidden group/item",
-                                              isSelected 
-                                                ? "bg-neon-blue/10 border-neon-blue text-neon-blue shadow-[0_0_10px_rgba(0,209,255,0.15)]" 
-                                                : "bg-black/30 border-white/5 text-white/70 hover:border-white/20 hover:bg-black/40"
-                                            )}
-                                          >
-                                            <span className="font-orbitron text-[8.5px] uppercase tracking-wider block font-bold transition-colors">
-                                              {movement.name}
-                                            </span>
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
-                                  </div>
                                 </motion.div>
                               )}
 
@@ -3762,79 +3727,14 @@ export default function App() {
                                       )}
                                     </div>
 
-                                    <div className="grid grid-cols-2 gap-2">
-                                      <div>
-                                        <label className="text-[8px] text-white/40 uppercase tracking-widest font-bold block mb-1">Color de Relleno</label>
-                                        <select
-                                          value={vr360Model3DColor}
-                                          onChange={(e) => setVr360Model3DColor(e.target.value)}
-                                          className="w-full bg-black/60 border border-white/10 rounded px-2 py-1 text-[9px] text-white outline-none focus:border-neon-blue"
-                                        >
-                                          <option value="#00d1ff">Cian Neón</option>
-                                          <option value="#34d399">Esmeralda</option>
-                                          <option value="#f43f5e">Rosa Neón</option>
-                                          <option value="#f59e0b">Ámbar</option>
-                                          <option value="#a855f7">Púrpura</option>
-                                          <option value="#ffffff">Blanco Pure</option>
-                                        </select>
-                                      </div>
-                                      <div>
-                                        <label className="text-[8px] text-white/40 uppercase tracking-widest font-bold block mb-1">Acabado 3D</label>
-                                        <select
-                                          value={vr360Model3DStyle}
-                                          onChange={(e) => setVr360Model3DStyle(e.target.value as any)}
-                                          className="w-full bg-black/60 border border-white/10 rounded px-2 py-1 text-[9px] text-white outline-none focus:border-neon-blue"
-                                        >
-                                          <option value="wireframe">Estructura alámbrica</option>
-                                          <option value="solid">Sólido brillante</option>
-                                          <option value="glowing">Brillo de contorno</option>
-                                        </select>
-                                      </div>
-                                    </div>
+{/* Background settings removed to prevent duplicate coloring background */}
                                   </motion.div>
                                 )}
                               </div>
                             </div>
                           )}
 
-                          {['animate', 'video_gen'].includes(activeAssetTool) && (
-                            <div className="space-y-3 border-t border-b border-white/5 py-4">
-                              <div className="flex items-center gap-2">
-                                <Video className="text-neon-blue animate-pulse" size={14} />
-                                <label className="text-[10px] font-orbitron text-white uppercase tracking-[0.15em] font-black">
-                                  MOVIMIENTO DE CÁMARA IA (VIDEO)
-                                </label>
-                              </div>
-                              <p className="text-[8px] text-white/50 leading-relaxed uppercase tracking-wider">
-                                Aplica el movimiento cinematográfico de acuerdo al Storytelling, adaptándose con precisión quirúrgica y con la referencia visual como foco central.
-                              </p>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-52 overflow-y-auto pr-1 custom-scrollbar">
-                                {CAMERA_MOVEMENTS.map((movement) => {
-                                  const isSelected = selectedCameraMovement === movement.name;
-                                  return (
-                                    <button
-                                      key={movement.name}
-                                      type="button"
-                                      onClick={() => setSelectedCameraMovement(isSelected ? null : movement.name)}
-                                      className={cn(
-                                        "flex flex-col text-left p-2.5 rounded-lg border transition-all relative overflow-hidden group/item",
-                                        isSelected 
-                                          ? "bg-neon-blue/10 border-neon-blue text-neon-blue shadow-[0_0_15px_rgba(0,209,255,0.15)]" 
-                                          : "bg-black/30 border-white/5 text-white/70 hover:border-white/20 hover:bg-black/40"
-                                      )}
-                                    >
-                                      <span className="font-orbitron text-[9px] uppercase tracking-wider block font-bold group-hover/item:text-neon-blue transition-colors">
-                                        {movement.name}
-                                      </span>
-                                      <span className="text-[8px] text-white/40 block mt-1 uppercase font-normal tracking-wide leading-normal">
-                                        {movement.desc}
-                                      </span>
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
+
 
                           <div className="space-y-3">
                             <div className="space-y-1">
@@ -5483,9 +5383,9 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {showVRViewer && (toolResult || visualPreview) && (
+      {showVRViewer && (
         <VR360Viewer 
-          backgroundImageUrl={toolResult || visualPreview!} 
+          backgroundImageUrl={toolResult || visualPreview || null} 
           elementImageUrl={elementPreview}
           onClose={() => setShowVRViewer(false)} 
           onPublishMetaAds={handlePublishVRAd}

@@ -409,7 +409,7 @@ async function startServer() {
   // New: Get Insights with filtering
   app.get("/api/meta/insights", async (req, res) => {
     const accessToken = req.headers.authorization?.split(" ")[1];
-    const { adAccountId, level, filtering, time_range, time_increment } = req.query;
+    const { adAccountId, level, filtering, time_range, time_increment, date_preset } = req.query;
     if (!accessToken || !adAccountId) return res.status(400).json({ error: "Missing params" });
 
     const fullAdAccountId = adAccountId.toString().startsWith('act_') ? adAccountId : `act_${adAccountId}`;
@@ -421,6 +421,8 @@ async function startServer() {
     
     if (time_range) {
       url += `&time_range=${encodeURIComponent(time_range as string)}`;
+    } else if (date_preset) {
+      url += `&date_preset=${encodeURIComponent(date_preset as string)}`;
     } else {
       url += `&date_preset=last_30d`;
     }
@@ -618,7 +620,6 @@ async function startServer() {
       const adSetData: any = {
         name: `Smart AdSet: ${objective} Targeting`,
         campaign_id: campaignId,
-        daily_budget: budgetValue,
         billing_event: billingEvent,
         optimization_goal: optimizationGoal,
         bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
@@ -629,6 +630,12 @@ async function startServer() {
         status: 'PAUSED',
         destination_type: destinationType
       };
+
+      if (scheduleStart && scheduleEnd) {
+        adSetData.lifetime_budget = budgetValue;
+      } else {
+        adSetData.daily_budget = budgetValue;
+      }
 
       if (promotedObject) adSetData.promoted_object = promotedObject;
 

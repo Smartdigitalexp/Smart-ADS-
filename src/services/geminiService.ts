@@ -4,17 +4,24 @@ import { AdResult, CampaignData, CSVRow, AnalysisReport, StrategicPlan } from ".
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 export async function analyzePerformanceData(
-  data: CSVRow[]
+  data: CSVRow[],
+  since?: string,
+  until?: string
 ): Promise<AnalysisReport> {
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: `
+    PERÍODO SELECCIONADO PARA EL ANÁLISIS:
+    Desde: ${since || 'No especificado'}
+    Hasta: ${until || 'No especificado'}
+
     DATOS DE RENDIMIENTO DE CAMPAÑAS (Meta Ads):
     ${JSON.stringify(data)}
 
     TAREA:
-    Realiza un análisis exhaustivo y profesional de estos datos de publicidad. 
-    Identifica patrones, éxitos y fracasos. Proporciona una estrategia clara para el futuro.
+    Realiza un análisis exhaustivo y profesional de estos datos de publicidad correspondientes exactamente al período seleccionado (${since || 'N/A'} al ${until || 'N/A'}).
+    Asegúrate de que la fecha del reporte, las conclusiones y la descripción correspondan estrictamente a este intervalo de tiempo.
+    Identifica patrones, éxitos y fracasos dentro de este período. Proporciona una estrategia clara para el futuro.
     Responde siempre en español.
 
     ESTRUCTURA DE RESPUESTA:

@@ -711,7 +711,7 @@ export default function App() {
 
     // Credit check
     if (credits !== -1 && credits < 150) {
-      setChatNotification('No tienes suficientes créditos para publicar esta campaña (Costo: 150 créditos).');
+      setChatNotification('No tienes suficientes créditos para publicar esta campaña.');
       setShowRecharge(true);
       return;
     }
@@ -886,7 +886,7 @@ export default function App() {
 
     const totalCost = 150 * results.length;
     if (credits !== -1 && credits < totalCost) {
-      setChatNotification(`No tienes suficientes créditos para publicar los ${results.length} anuncios (Costo: ${totalCost} créditos).`);
+      setChatNotification(`No tienes suficientes créditos para publicar los ${results.length} anuncios.`);
       setShowRecharge(true);
       return;
     }
@@ -897,20 +897,22 @@ export default function App() {
     let successCount = 0;
     const errors: string[] = [];
 
-    for (let i = 0; i < results.length; i++) {
-      const res = results[i];
+    const publishPromises = results.map(async (res, i) => {
       const adName = res.funnelPhase?.name || `Anuncio ${i + 1}`;
-      setChatNotification(`Publicando anuncio ${successCount + 1}/${results.length}: ${adName}...`);
-
       let finalBudget = res.funnelPhase?.budget.toString() || campaign.budget || '5.00';
       let finalObjective = res.funnelPhase?.objective || campaign.objective || 'Reconocimiento';
       let finalScheduleEnd = campaign.scheduleEnd;
 
-      if (campaign.scheduleStart && res.funnelPhase?.duration) {
+      if (res.funnelPhase?.duration) {
         try {
-          const start = new Date(campaign.scheduleStart);
+          const start = campaign.scheduleStart ? new Date(campaign.scheduleStart) : new Date(Date.now() + 10 * 60000); // 10 minutes from now if empty
           const end = new Date(start.getTime() + res.funnelPhase.duration * 24 * 60 * 60 * 1000);
           finalScheduleEnd = end.toISOString();
+          
+          if (!campaign.scheduleStart) {
+             // For bulk publishing without the modal, auto-assign a start time so server uses 'lifetime_budget'
+             campaign.scheduleStart = start.toISOString();
+          }
         } catch (e) {
           console.error("Date calculation error:", e);
         }
@@ -945,33 +947,43 @@ export default function App() {
           audienceNetworkEnabled: campaign.audienceNetworkEnabled,
           messengerEnabled: campaign.messengerEnabled,
           advantagePlacementsEnabled: campaign.advantagePlacementsEnabled,
-          scheduleStart: campaign.scheduleStart,
+          scheduleStart: campaign.scheduleStart, // Uses the generated one if it was empty
           scheduleEnd: finalScheduleEnd
         });
 
         if (publishResponse.success) {
-          successCount++;
-          // Deduct credits
-          if (credits !== -1 && currentUser) {
-            try {
-              const deductRes = await fetch('/api/user/credits/deduct', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: currentUser.uid, amount: 150 })
-              });
-              const deductData = await deductRes.json();
-              if (deductRes.ok) {
-                setCredits(deductData.remaining);
-              }
-            } catch (e) {
-              console.error("Credit deduction error:", e);
-            }
-          }
+          return { success: true, adName };
         } else {
-          errors.push(`Error en ${adName}: ${publishResponse.error}`);
+          return { success: false, adName, error: publishResponse.error };
         }
       } catch (err: any) {
-        errors.push(`Error en ${adName}: ${err.message}`);
+        return { success: false, adName, error: err.message };
+      }
+    });
+
+    const publishResults = await Promise.all(publishPromises);
+
+    for (const pRes of publishResults) {
+      if (pRes.success) {
+        successCount++;
+        // Deduct credits
+        if (credits !== -1 && currentUser) {
+          try {
+            const deductRes = await fetch('/api/user/credits/deduct', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId: currentUser.uid, amount: 150 })
+            });
+            const deductData = await deductRes.json();
+            if (deductRes.ok) {
+              setCredits(deductData.remaining);
+            }
+          } catch (e) {
+            console.error("Credit deduction error:", e);
+          }
+        }
+      } else {
+        errors.push(`Error en ${pRes.adName}: ${pRes.error}`);
       }
     }
 
@@ -1025,6 +1037,9 @@ export default function App() {
     since: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     until: new Date().toISOString().split('T')[0]
   });
+  const filteredCsvData = React.useMemo(() => {
+    return csvData;
+  }, [csvData]);
   const [isImportingMeta, setIsImportingMeta] = useState(false);
 
   // New logic for Meta Analysis imports
@@ -1114,7 +1129,7 @@ export default function App() {
         adAccountId: selectedAdAccount,
         level,
         filtering,
-        timeRange: { since: analysisDateRange.since, until: analysisDateRange.until },
+        datePreset: 'maximum',
         timeIncrement: 1
       });
 
@@ -1194,37 +1209,41 @@ export default function App() {
   };
 
   const handleExecuteAnalysis = async () => {
-    if (credits !== -1 && credits < 100) {
-      setChatNotification('No tienes suficientes créditos para realizar el análisis (Costo: 100 créditos).');
+    if (credits !== -1 && credits < 150) {
+      setChatNotification('No tienes suficientes créditos para realizar el análisis.');
       setShowRecharge(true);
       return;
     }
 
-    let dataToAnalyze = [...csvData];
+    let dataToAnalyze: CSVRow[] = [];
 
     setIsAnalyzing(true);
 
     try {
-      if (dataToAnalyze.length === 0) {
-        if (selectedAdAccount) {
-          const metaData = await fetchMetaDataResult();
-          if (metaData && metaData.length > 0) {
-            setCsvData(metaData);
-            dataToAnalyze = metaData;
-          } else {
-            if (!metaData) {
-              setIsAnalyzing(false);
-              return;
-            }
-            setChatNotification("No hay datos para analizar.");
+      if (selectedAdAccount) {
+        // Always fetch fresh insights from Meta for the selected campaign or ad set
+        const metaData = await fetchMetaDataResult();
+        if (metaData && metaData.length > 0) {
+          setCsvData(metaData);
+          dataToAnalyze = metaData;
+        } else {
+          if (!metaData) {
             setIsAnalyzing(false);
             return;
           }
-        } else {
+          setChatNotification("No hay datos para analizar.");
+          setCsvData([]); // Clear stale cache
+          setIsAnalyzing(false);
+          return;
+        }
+      } else {
+        // For CSV / uploaded data, use the raw data directly without date restrictions
+        if (csvData.length === 0) {
           setChatNotification("Primero conecta Meta Ads o carga un archivo CSV.");
           setIsAnalyzing(false);
           return;
         }
+        dataToAnalyze = csvData;
       }
 
       setChatNotification("IA Smart Ads analizando el rendimiento de tus campañas...");
@@ -1235,7 +1254,7 @@ export default function App() {
           const res = await fetch('/api/user/credits/deduct', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId: currentUser.uid, amount: 100 })
+            body: JSON.stringify({ userId: currentUser.uid, amount: 150 })
           });
           const data = await res.json();
           if (res.ok) {
@@ -1269,8 +1288,8 @@ export default function App() {
       return;
     }
 
-    if (credits !== -1 && credits < 50) {
-      setChatNotification('Necesitas al menos 50 créditos para generar una Estrategia Digital.');
+    if (credits !== -1 && credits < 150) {
+      setChatNotification('Necesitas al menos 150 créditos para generar un Plan de Medios.');
       setShowRecharge(true);
       return;
     }
@@ -1285,7 +1304,7 @@ export default function App() {
           const res = await fetch('/api/user/credits/deduct', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId: currentUser.uid, amount: 50 })
+            body: JSON.stringify({ userId: currentUser.uid, amount: 150 })
           });
           const data = await res.json();
           if (res.ok) {
@@ -1304,13 +1323,13 @@ export default function App() {
       const pageObject = pages.find(p => p.id === selectedPage);
       const pageName = pageObject ? pageObject.name : campaign.facebookPage;
 
-      // Calculate analysis metrics if csvData exists
+      // Calculate analysis metrics if filteredCsvData exists
       let analysisMetrics = undefined;
-      if (csvData.length > 0) {
-        const totalImpressions = csvData.reduce((acc, curr) => acc + (curr.impresiones || 0), 0);
-        const totalResults = csvData.reduce((acc, curr) => acc + (curr.resultados || 0), 0);
-        const totalClicks = csvData.reduce((acc, curr) => acc + (curr.clics_enlace || 0), 0);
-        const totalSpend = csvData.reduce((acc, curr) => acc + (curr.gasto_total || 0), 0);
+      if (filteredCsvData.length > 0) {
+        const totalImpressions = filteredCsvData.reduce((acc, curr) => acc + (curr.impresiones || 0), 0);
+        const totalResults = filteredCsvData.reduce((acc, curr) => acc + (curr.resultados || 0), 0);
+        const totalClicks = filteredCsvData.reduce((acc, curr) => acc + (curr.clics_enlace || 0), 0);
+        const totalSpend = filteredCsvData.reduce((acc, curr) => acc + (curr.gasto_total || 0), 0);
         
         analysisMetrics = {
           avgCtr: totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0,
@@ -1756,8 +1775,15 @@ export default function App() {
 
     if (credits !== -1) {
       let requiredCredits = 50;
+      const is360 = campaign.aspectRatio.includes('2:1');
       if (campaign.format === 'video') {
-        requiredCredits = campaign.videoDuration === 10 ? 200 : 100;
+        if (campaign.videoDuration === 10) {
+          requiredCredits = is360 ? 600 : 300;
+        } else {
+          requiredCredits = is360 ? 300 : 150;
+        }
+      } else {
+        requiredCredits = is360 ? 100 : 50;
       }
       if (credits < requiredCredits) {
         setChatNotification('Tus créditos se han agotado. El sistema requiere una recarga para continuar.');
@@ -1775,8 +1801,15 @@ export default function App() {
       // 1. Deduct credits first via API
       if (credits !== -1 && currentUser) {
         let cost = 50;
+        const is360 = campaign.aspectRatio.includes('2:1');
         if (campaign.format === 'video') {
-          cost = campaign.videoDuration === 10 ? 200 : 100;
+          if (campaign.videoDuration === 10) {
+            cost = is360 ? 600 : 300;
+          } else {
+            cost = is360 ? 300 : 150;
+          }
+        } else {
+          cost = is360 ? 100 : 50;
         }
 
         const deductRes = await fetch('/api/user/credits/deduct', {
@@ -2518,7 +2551,7 @@ export default function App() {
                           <h3 className="font-orbitron text-xs font-bold tracking-wider uppercase text-neon-blue">META ADS CONNECTED</h3>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div className="space-y-2">
                             <label className="text-[10px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Cuenta Publicitaria</label>
                             <select 
@@ -2549,23 +2582,18 @@ export default function App() {
                           </div>
 
                           <div className="space-y-2">
-                            <label className="text-[10px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Desde</label>
-                            <input 
-                              type="date"
-                              value={analysisDateRange.since}
-                              onChange={(e) => setAnalysisDateRange(prev => ({ ...prev, since: e.target.value }))}
+                            <label className="text-[10px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Grupo de Anuncios</label>
+                            <select 
+                              value={selectedAnalysisIds.adSetId}
+                              onChange={(e) => setSelectedAnalysisIds(prev => ({ ...prev, adSetId: e.target.value }))}
                               className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2 text-xs text-white/80 focus:border-neon-blue outline-none font-orbitron"
-                            />
-                          </div>
-
-                          <div className="space-y-2">
-                            <label className="text-[10px] font-orbitron text-white/40 uppercase tracking-widest block font-medium">Hasta</label>
-                            <input 
-                              type="date"
-                              value={analysisDateRange.until}
-                              onChange={(e) => setAnalysisDateRange(prev => ({ ...prev, until: e.target.value }))}
-                              className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2 text-xs text-white/80 focus:border-neon-blue outline-none font-orbitron"
-                            />
+                              disabled={!selectedAnalysisIds.campaignId}
+                            >
+                              <option value="">{selectedAnalysisIds.campaignId ? "Todos los grupos de anuncios" : "Selecciona una campaña primero"}</option>
+                              {metaAnalysisData.adSets.map(aset => (
+                                <option key={aset.id} value={aset.id}>{aset.name}</option>
+                              ))}
+                            </select>
                           </div>
                         </div>
 
@@ -2640,7 +2668,17 @@ export default function App() {
                         <div className="h-px flex-1 bg-neon-blue/20" />
                       </div>
                       
-                      <AnalysisDashboard data={csvData} report={analysisReport} />
+                      {filteredCsvData.length > 0 ? (
+                        <AnalysisDashboard data={filteredCsvData} report={analysisReport} />
+                      ) : (
+                        <div className="glass-panel p-8 border-neon-blue/10 bg-neon-blue/5 text-center space-y-2">
+                          <AlertTriangle className="text-neon-blue mx-auto animate-pulse" size={24} />
+                          <h4 className="font-orbitron text-xs font-bold text-white uppercase tracking-wider">Sin datos de rendimiento</h4>
+                          <p className="text-[10px] text-white/50 uppercase tracking-widest max-w-md mx-auto">
+                            No se registran datos disponibles de rendimiento para el objeto seleccionado de Meta Ads.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
                 </motion.div>
@@ -3271,6 +3309,33 @@ export default function App() {
                             onRedirectToEnvironment={() => {
                               setActiveAssetTool(last360Tool);
                               setShowVRViewer(true);
+                            }}
+                            onConsumeCredits={async (amount) => {
+                              if (credits !== -1 && credits < amount) {
+                                setChatNotification(`Necesitas al menos ${amount} créditos para esta función avanzada.`);
+                                setShowRecharge(true);
+                                return false;
+                              }
+                              if (credits !== -1 && currentUser) {
+                                try {
+                                  const deductRes = await fetch('/api/user/credits/deduct', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ userId: currentUser.uid, amount })
+                                  });
+                                  if (deductRes.ok) {
+                                    const deductData = await deductRes.json();
+                                    setCredits(deductData.remaining);
+                                    return true;
+                                  } else {
+                                    setChatNotification('Error en pago de créditos.');
+                                    return false;
+                                  }
+                                } catch (e) {
+                                  return false;
+                                }
+                              }
+                              return true;
                             }}
                           />
                         </div>
@@ -4071,18 +4136,130 @@ export default function App() {
                       </p>
                     </div>
 
-                    {results[selectedResultIndex]?.funnelPhase && (
-                      <div className="glass-panel p-4 bg-neon-blue/20 border-neon-blue/40 flex items-center gap-4 animate-pulse">
-                        <div className="w-10 h-10 rounded-full bg-neon-blue/20 flex items-center justify-center text-neon-blue">
-                          <Target size={20} />
+                    {results.some(r => r.funnelPhase) && strategicPlan ? (
+                      <div className="glass-panel p-6 bg-neon-blue/10 border-neon-blue/40 flex flex-col gap-4 mb-6 relative z-20">
+                        <div className="flex items-center gap-4 border-b border-neon-blue/20 pb-4">
+                          <div className="w-10 h-10 rounded-full bg-neon-blue/20 flex items-center justify-center text-neon-blue">
+                            <Target size={20} />
+                          </div>
+                          <div>
+                            <h4 className="font-orbitron text-xs font-black text-neon-blue uppercase tracking-[0.2em]">ESTRATEGIA DIGITAL OPTIMIZADA</h4>
+                            <p className="text-[9px] text-white/50 uppercase tracking-widest">Resumen del Plan de Medios y Configuración de Lanzamiento</p>
+                          </div>
                         </div>
-                        <div className="flex-1">
-                          <h4 className="font-orbitron text-[10px] font-black text-neon-blue uppercase tracking-widest">ESTRATEGIA DIGITAL OPTIMIZADA</h4>
-                          <p className="text-[9px] text-white/70 uppercase tracking-widest leading-tight">
-                            Este anuncio se publicará como la fase <span className="text-neon-blue font-bold">"{results[selectedResultIndex].funnelPhase.name}"</span> con presupuesto de <span className="text-neon-blue font-bold">${results[selectedResultIndex].funnelPhase.budget} USD</span> y objetivo de <span className="text-neon-blue font-bold">"{results[selectedResultIndex].funnelPhase.objective}"</span>.
-                          </p>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pb-4 border-b border-white/5">
+                          {results.filter(r => r.funnelPhase).map((r, idx) => (
+                            <div key={idx} className="bg-black/30 border border-white/5 p-4 rounded-xl space-y-3">
+                              <span className="text-[10px] text-neon-blue font-black uppercase tracking-wider block">{r.funnelPhase?.name}</span>
+                              <div className="flex justify-between border-t border-white/5 pt-2">
+                                <span className="text-[8px] text-white/40 uppercase">Objetivo</span>
+                                <span className="text-[9px] text-white font-bold tracking-widest uppercase">{r.funnelPhase?.objective}</span>
+                              </div>
+                              <div className="flex justify-between border-t border-white/5 pt-2">
+                                <span className="text-[8px] text-white/40 uppercase">Presupuesto Mínimo</span>
+                                <span className="text-[9px] text-neon-green font-bold tracking-widest uppercase">${r.funnelPhase?.budget} USD (Total)</span>
+                              </div>
+                              <div className="flex justify-between border-t border-white/5 pt-2">
+                                <span className="text-[8px] text-white/40 uppercase">Duración Programada</span>
+                                <span className="text-[9px] text-white font-bold tracking-widest uppercase">{r.funnelPhase?.duration} Días</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                           <div className="space-y-1.5">
+                              <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Cuenta Publicitaria</label>
+                              <select 
+                                value={selectedAdAccount}
+                                onChange={(e) => setSelectedAdAccount(e.target.value)}
+                                className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-[10px] text-white focus:border-neon-blue/50 outline-none h-[42px]"
+                              >
+                                <option value="">Seleccionar cuenta...</option>
+                                {adAccounts.map(acc => (
+                                  <option key={acc.id} value={acc.id}>{acc.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Página de Facebook</label>
+                              <select 
+                                value={selectedPage}
+                                onChange={(e) => setSelectedPage(e.target.value)}
+                                className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-[10px] text-white focus:border-neon-blue/50 outline-none h-[42px]"
+                              >
+                                <option value="">Seleccionar página...</option>
+                                {pages.map(p => (
+                                  <option key={p.id} value={p.id}>{p.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Segmentación e Intereses</label>
+                              <input 
+                                type="text" 
+                                value={campaign.audience}
+                                onChange={(e) => setCampaign({...campaign, audience: e.target.value})}
+                                placeholder="Ej: Tecnología, Compras online..."
+                                className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-[10px] text-white focus:border-neon-blue/50 outline-none h-[42px]"
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Ubicaciones (Placements)</label>
+                              <div className="grid grid-cols-2 gap-2 h-[42px]">
+                                {[
+                                  { key: 'feedEnabled', label: 'Feed' },
+                                  { key: 'reelsAndStories', label: 'Reels/Stories' }
+                                ].map((placement) => {
+                                  const isCombined = placement.key === 'reelsAndStories';
+                                  const isChecked = isCombined 
+                                    ? (campaign.reelsEnabled || campaign.storiesEnabled) 
+                                    : !!campaign[placement.key as keyof CampaignData];
+
+                                  return (
+                                    <label 
+                                      key={placement.key} 
+                                      className={cn(
+                                        "flex items-center gap-2 px-3 rounded-lg border transition-all cursor-pointer h-full",
+                                        isChecked ? "bg-neon-blue/10 border-neon-blue/30" : "bg-black/20 border-white/5 hover:border-white/20"
+                                      )}
+                                    >
+                                      <input 
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={() => {
+                                          if (isCombined) {
+                                            const nextVal = !isChecked;
+                                            setCampaign({...campaign, reelsEnabled: nextVal, storiesEnabled: nextVal});
+                                          } else {
+                                            setCampaign({...campaign, [placement.key]: !campaign[placement.key as keyof CampaignData]});
+                                          }
+                                        }}
+                                        className="accent-neon-blue w-3 h-3"
+                                      />
+                                      <span className="text-[8px] font-bold uppercase tracking-wider text-white/70">{placement.label}</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
                         </div>
                       </div>
+                    ) : (
+                      results[selectedResultIndex]?.funnelPhase && (
+                        <div className="glass-panel p-4 bg-neon-blue/20 border-neon-blue/40 flex items-center gap-4 animate-pulse">
+                          <div className="w-10 h-10 rounded-full bg-neon-blue/20 flex items-center justify-center text-neon-blue">
+                            <Target size={20} />
+                          </div>
+                          <div className="flex-1">
+                            <h4 className="font-orbitron text-[10px] font-black text-neon-blue uppercase tracking-widest">Fase de Embudo</h4>
+                            <p className="text-[9px] text-white/70 uppercase tracking-widest leading-tight">
+                              Este anuncio forma parte de <span className="text-neon-blue font-bold">"{results[selectedResultIndex].funnelPhase.name}"</span>.
+                            </p>
+                          </div>
+                        </div>
+                      )
                     )}
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -4324,7 +4501,14 @@ export default function App() {
                       <button 
                         onClick={() => {
                           setPublishMode(results.length > 1 ? 'bulk' : 'single');
-                          metaToken ? setShowPublishModal(true) : setShowSettings(true);
+                          if (!metaToken) {
+                            setShowSettings(true);
+                          } else if (strategicPlan && results.length === 3 && results.some(r => r.funnelPhase)) {
+                            // Plan Strategy exists and the user is deploying all 3 ads natively, bypassing the custom modal
+                            executePublishBulk();
+                          } else {
+                            setShowPublishModal(true);
+                          }
                         }}
                         className="px-12 py-4 rounded-xl bg-neon-blue text-black font-black text-sm uppercase tracking-[0.3em] hover:shadow-[0_0_30px_rgba(0,209,255,0.5)] transition-all flex items-center justify-center gap-4 group"
                       >
@@ -4795,9 +4979,12 @@ export default function App() {
               <div className="mt-8 pt-6 border-t border-white/5">
                 <p className="text-[9px] text-white/30 leading-relaxed uppercase tracking-[0.2em] text-center">
                   Aviso Legal: El consumo de créditos se basa en la complejidad del procesamiento neural. 
-                  Imágenes: <span className="text-white/50">50 créditos</span>. 
-                  Videos (5s): <span className="text-white/50">100 créditos</span>. 
-                  Videos (10s): <span className="text-white/50">200 créditos</span>. 
+                  Imágenes: <span className="text-white/50">50 créditos</span> (360°: 100). 
+                  Videos 5s: <span className="text-white/50">150 créditos</span> (360°: 300). 
+                  Videos 10s: <span className="text-white/50">300 créditos</span> (360°: 600). 
+                  Modelado 3D: <span className="text-white/50">200 créditos</span>. 
+                  Product Studio: <span className="text-white/50">30 créditos</span>. 
+                  Herramientas: <span className="text-white/50">150 créditos</span>. 
                   Al recargar, aceptas los términos de servicio y la política de uso de IA de SMART ADS.
                 </p>
               </div>
@@ -4856,9 +5043,17 @@ export default function App() {
                 ) : (
                   <div className="grid grid-cols-1 gap-4">
                     {historyItems.map((item) => {
-                      const cost = item.campaign.format === 'video' 
-                        ? (item.campaign.videoDuration === 10 ? 200 : 100) 
-                        : 50;
+                      let cost = 50;
+                      const is360 = item.campaign.aspectRatio.includes('2:1');
+                      if (item.campaign.format === 'video') {
+                        if (item.campaign.videoDuration === 10) {
+                          cost = is360 ? 600 : 300;
+                        } else {
+                          cost = is360 ? 300 : 150;
+                        }
+                      } else {
+                        cost = is360 ? 100 : 50;
+                      }
                       
                       return (
                         <div 

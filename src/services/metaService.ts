@@ -68,6 +68,7 @@ export async function getInsights(token: string, params: {
   filtering?: string;
   timeRange?: { since: string; until: string };
   timeIncrement?: number | 'all_days';
+  datePreset?: string;
 }) {
   let url = `/api/meta/insights?adAccountId=${params.adAccountId}`;
   if (params.level) url += `&level=${params.level}`;
@@ -75,6 +76,9 @@ export async function getInsights(token: string, params: {
   if (params.timeIncrement) url += `&time_increment=${params.timeIncrement}`;
   if (params.timeRange) {
     url += `&time_range=${JSON.stringify(params.timeRange)}`;
+  }
+  if (params.datePreset) {
+    url += `&date_preset=${params.datePreset}`;
   }
 
   const res = await fetch(url, {

@@ -60,7 +60,7 @@ export const SmartBot: React.FC<SmartBotProps> = ({ currentCampaign, allResults 
   // Unified bubble message timeout
   useEffect(() => {
     if (bubbleMessage) {
-      const timer = setTimeout(() => setBubbleMessage(null), 10000);
+      const timer = setTimeout(() => setBubbleMessage(null), 4000);
       return () => clearTimeout(timer);
     }
   }, [bubbleMessage]);

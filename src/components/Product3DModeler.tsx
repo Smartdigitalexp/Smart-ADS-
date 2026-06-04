@@ -15,6 +15,7 @@ import {
   HelpCircle,
   Maximize2
 } from 'lucide-react';
+import { optimizeProductReference } from '../services/geminiService';
 
 interface Product3DModelerProps {
   initialImage: string | null;
@@ -23,6 +24,7 @@ interface Product3DModelerProps {
   onPreviewCreated: (imageUrl: string) => void;
   onApplyAsElement: (elementUrl: string) => void;
   onRedirectToEnvironment?: () => void;
+  onConsumeCredits?: (amount: number) => Promise<boolean>;
 }
 
 export function Product3DModeler({ 
@@ -31,11 +33,13 @@ export function Product3DModeler({
   background360Url,
   onPreviewCreated, 
   onApplyAsElement,
-  onRedirectToEnvironment
+  onRedirectToEnvironment,
+  onConsumeCredits
 }: Product3DModelerProps) {
   // Input file uploading ref and local state
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [localImage, setLocalImage] = useState<string | null>(null);
+  const [isStudioProcessing, setIsStudioProcessing] = useState(false);
   
   // Canvas refs
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -196,6 +200,33 @@ export function Product3DModeler({
         setStatusMessage('Imagen de producto cargada correctamente.');
       };
       reader.readAsDataURL(file);
+    }
+  };
+
+  const handleProductStudioRefine = async () => {
+    if (!localImage) return;
+    if (onConsumeCredits && !(await onConsumeCredits(30))) return;
+    
+    setIsStudioProcessing(true);
+    setStatusMessage('Invocando Product Studio AI: Optimizando y segmentando imagen para render volumétrico...');
+    try {
+      const base64 = localImage.split(',')[1];
+      const match = localImage.match(/^data:(image\/[a-zA-Z]+);base64,/);
+      const mimeType = match ? match[1] : 'image/png';
+      
+      const refinedImage = await optimizeProductReference(base64, mimeType, productName);
+      
+      if (refinedImage) {
+        setLocalImage(refinedImage);
+        setStatusMessage('¡Imagen altamente optimizada y segmentada con éxito para extrusión volumétrica!');
+      } else {
+        setStatusMessage('Error durante optimización inicial de imagen. Intente nuevamente.');
+      }
+    } catch (e) {
+      console.error(e);
+      setStatusMessage('Fallo térmico neural al optimizar la imagen.');
+    } finally {
+      setIsStudioProcessing(false);
     }
   };
 
@@ -597,8 +628,9 @@ export function Product3DModeler({
   }, [pitch, yaw, roll]);
 
   // Command to export as high-fidelity PNG capture directly from WebGL preserveDrawingBuffer
-  const handleExportPNG = () => {
+  const handleExportPNG = async () => {
     if (!canvasRef.current || !sceneRef.current || !rendererRef.current) return;
+    if (onConsumeCredits && !(await onConsumeCredits(200))) return;
     setStatusMessage('Capturando renderizado 3D de alta fidelidad...');
     try {
       const bgSphere = sceneRef.current.getObjectByName("bgSphereDome");
@@ -638,6 +670,7 @@ export function Product3DModeler({
   // Command to dynamically export the scene to a functional GLB 3D model (for Meta Ads / standard engines)
   const handleExportGLBFile = async () => {
     if (!sceneRef.current || !groupRef.current) return;
+    if (onConsumeCredits && !(await onConsumeCredits(200))) return;
     setIsProcessing(true);
     setStatusMessage('Cargando compilador de polígonos tridimensionales...');
 
@@ -687,8 +720,9 @@ export function Product3DModeler({
   };
 
   // Command to bind and mount this custom-made 3D Model asset directly inside our VR/360 workspace!
-  const handleApplyTo360 = () => {
+  const handleApplyTo360 = async () => {
     if (!canvasRef.current || !sceneRef.current || !rendererRef.current) return;
+    if (onConsumeCredits && !(await onConsumeCredits(200))) return;
     try {
       const bgSphere = sceneRef.current.getObjectByName("bgSphereDome");
       const gridHelper = sceneRef.current.getObjectByName("gridHelperVisual");
@@ -754,13 +788,23 @@ export function Product3DModeler({
           </div>
 
           {localImage ? (
-            <div className="flex items-center gap-4 bg-white/5 p-3 rounded-xl border border-white/5 relative">
-              <img src={localImage} alt="Flat Product" className="w-16 h-16 object-contain rounded-lg bg-black/20 border border-white/10" />
-              <div className="flex-1 min-w-0">
-                <span className="text-[8px] text-neon-blue font-bold uppercase tracking-widest block">Producto Cargado</span>
-                <p className="text-xs font-bold text-white truncate uppercase font-orbitron">{productName || 'Producto Editado'}</p>
-                <p className="text-[8.5px] text-white/40 block">Listo para extrusión tridimensional inteligente.</p>
+            <div className="space-y-3">
+              <div className="flex items-center gap-4 bg-white/5 p-3 rounded-xl border border-white/5 relative">
+                <img src={localImage} alt="Flat Product" className="w-16 h-16 object-contain rounded-lg bg-black/20 border border-white/10" />
+                <div className="flex-1 min-w-0">
+                  <span className="text-[8px] text-neon-blue font-bold uppercase tracking-widest block">Producto Cargado</span>
+                  <p className="text-xs font-bold text-white truncate uppercase font-orbitron">{productName || 'Producto Editado'}</p>
+                  <p className="text-[8.5px] text-white/40 block">Listo para extrusión tridimensional inteligente.</p>
+                </div>
               </div>
+              <button 
+                onClick={handleProductStudioRefine}
+                disabled={isStudioProcessing}
+                className="w-full py-2 rounded-lg bg-neon-blue/10 border border-neon-blue/20 text-neon-blue text-[9px] font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-neon-blue hover:text-black transition-all"
+              >
+                {isStudioProcessing ? <Cpu className="animate-spin" size={12} /> : <Sparkles size={12} />}
+                OPTIMIZAR CON PRODUCT STUDIO (30 C.)
+              </button>
             </div>
           ) : (
             <div className="space-y-3">

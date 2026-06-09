@@ -213,6 +213,44 @@ export default function App() {
   const csvInputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isInstallable, setIsInstallable] = useState(false);
+  const [isInstalled, setIsInstalled] = useState(false);
+
+  useEffect(() => {
+    // Check if app is already installed
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+      setIsInstalled(true);
+    }
+
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setIsInstallable(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      
+      if (outcome === 'accepted') {
+        setIsInstalled(true);
+        setIsInstallable(false);
+      }
+      setDeferredPrompt(null);
+    } else {
+      alert("Para instalar la App en tu dispositivo:\n\n1. Asegúrate de abrir la aplicación desde el navegador de tu móvil o PC (fuera del entorno de desarrollo).\n2. Abre el menú de opciones del navegador (los tres puntos ⠇).\n3. Selecciona 'Instalar aplicación' o 'Añadir a la pantalla principal'.\n\nSi ya está instalada, búscala en tu lista de aplicaciones.");
+    }
+  };
+
   // States for 3D elements in 360/VR space pre-configuration
   const [vr360InsertType, setVr360InsertType] = useState<'none' | 'text' | 'image' | '3d_model'>('none');
   const [vr360Selected3DShape, setVr360Selected3DShape] = useState<'cube' | 'torus' | 'pyramid' | 'torusknot' | 'sphere'>('cube');
@@ -4961,7 +4999,7 @@ export default function App() {
       )}
 
       {/* Footer / Status Bar */}
-      <footer className="h-auto md:h-10 border-t border-neon-blue/20 bg-black/60 flex flex-col md:flex-row items-center px-6 py-3 md:py-0 justify-between text-[8px] md:text-[10px] font-bold tracking-[0.2em] uppercase text-white/40 gap-2 shrink-0">
+      <footer className="h-auto md:h-10 border-t border-neon-blue/20 bg-black/60 flex flex-col md:flex-row items-center px-6 py-3 md:py-0 justify-between text-[8px] md:text-[10px] font-bold tracking-[0.2em] uppercase text-white/40 gap-4 shrink-0">
         <div className="flex items-center gap-4">
           <span className="flex items-center gap-1.5">
             <div className="w-1.5 h-1.5 rounded-full bg-neon-green" /> ONLINE
@@ -4970,6 +5008,17 @@ export default function App() {
             <div className="w-1.5 h-1.5 rounded-full bg-neon-blue" /> ENCRYPTED
           </span>
         </div>
+        
+        {!isInstalled && (
+          <button 
+            onClick={handleInstallClick}
+            className="lg:hidden px-4 py-1.5 bg-neon-blue/20 text-neon-blue border border-neon-blue/50 rounded-lg hover:bg-neon-blue/30 hover:shadow-[0_0_15px_rgba(0,209,255,0.4)] transition-all flex items-center gap-2"
+          >
+            <Download className="w-3 h-3" />
+            INSTALAR APP
+          </button>
+        )}
+        
         <div className="text-center md:text-right">
           © 2026 SMART ADS • NEURAL INTERFACE
         </div>

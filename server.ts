@@ -25,11 +25,14 @@ if (!admin.apps.length) {
     // it's often better to initialize without explicit config to use ADC.
     // We'll fall back to explicit config if needed.
     if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.K_SERVICE) {
-      admin.initializeApp();
+      admin.initializeApp({
+        storageBucket: firebaseConfig.storageBucket
+      });
       console.log("Firebase Admin initialized via default credentials.");
     } else {
       admin.initializeApp({
         projectId: firebaseConfig.projectId,
+        storageBucket: firebaseConfig.storageBucket
       });
       console.log("Firebase Admin initialized with explicit projectId.");
     }
@@ -39,6 +42,7 @@ if (!admin.apps.length) {
     if (!admin.apps.length) {
       admin.initializeApp({
         projectId: firebaseConfig.projectId,
+        storageBucket: firebaseConfig.storageBucket
       });
     }
   }
@@ -70,8 +74,8 @@ async function startServer() {
   const app = express();
   const PORT = process.env.PORT || 3000;
 
-  app.use(express.json({ limit: '50mb' }));
-  app.use(express.urlencoded({ limit: '50mb', extended: true }));
+  app.use(express.json({ limit: '200mb' }));
+  app.use(express.urlencoded({ limit: '200mb', extended: true }));
 
   // Health check endpoint for Cloud Run
   app.get("/api/health", (req, res) => {
@@ -204,6 +208,111 @@ async function startServer() {
       
       res.json({ success: true, remaining: newCredits });
     } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/proxy-image", async (req, res) => {
+    try {
+      const imageUrl = req.query.url as string;
+      if (!imageUrl) {
+        return res.status(400).send("Missing URL parameter");
+      }
+      
+      const response = await fetch(imageUrl);
+      if (!response.ok) {
+        return res.status(response.status).send(response.statusText);
+      }
+      
+      const contentType = response.headers.get("content-type");
+      if (contentType) {
+        res.setHeader("Content-Type", contentType);
+      }
+      
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      
+      const arrayBuffer = await response.arrayBuffer();
+      res.send(Buffer.from(arrayBuffer));
+    } catch (e: any) {
+      console.error("Proxy error:", e);
+      res.status(500).send(e.message);
+    }
+  });
+
+  // 4. Share VR Document
+  app.post("/api/share-vr", async (req, res) => {
+    try {
+      const { backgroundImageUrl, elementImageUrl } = req.body;
+      if (!backgroundImageUrl) {
+        return res.status(400).json({ error: "Missing background image data" });
+      }
+
+      const bucket = admin.storage().bucket();
+      const storageRefPrefix = `vr_shares/shared_vr_${Date.now()}`;
+      
+      const isVideo = backgroundImageUrl.includes('video') || backgroundImageUrl.startsWith('data:video');
+      const extension = isVideo ? '.mp4' : '.jpg';
+      
+      // Extract base64 and mime type safely for large strings
+      let bgBuffer;
+      let bgMime = isVideo ? 'video/mp4' : 'image/jpeg';
+      
+      const bgCommaIdx = backgroundImageUrl.indexOf(',');
+      if (bgCommaIdx !== -1 && backgroundImageUrl.startsWith('data:')) {
+        const header = backgroundImageUrl.substring(0, bgCommaIdx);
+        bgMime = header.replace('data:', '').replace(';base64', '');
+        const bgBase64 = backgroundImageUrl.substring(bgCommaIdx + 1);
+        bgBuffer = Buffer.from(bgBase64, 'base64');
+      } else {
+        return res.status(400).json({ error: "Invalid base64 data" });
+      }
+
+      const { v4: uuidv4 } = require('uuid');
+      const bgToken = uuidv4();
+      const bgFile = bucket.file(`${storageRefPrefix}${extension}`);
+      await bgFile.save(bgBuffer, {
+        metadata: { 
+          contentType: bgMime,
+          metadata: {
+            firebaseStorageDownloadTokens: bgToken
+          }
+        }
+      });
+      const bgDownloadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(bgFile.name)}?alt=media&token=${bgToken}`;
+
+      let elemDownloadUrl = null;
+      if (elementImageUrl) {
+        const elCommaIdx = elementImageUrl.indexOf(',');
+        if (elCommaIdx !== -1 && elementImageUrl.startsWith('data:')) {
+          const elHeader = elementImageUrl.substring(0, elCommaIdx);
+          const elMime = elHeader.replace('data:', '').replace(';base64', '');
+          const elBase64 = elementImageUrl.substring(elCommaIdx + 1);
+          const elBuffer = Buffer.from(elBase64, 'base64');
+          const elFile = bucket.file(`${storageRefPrefix}_element.png`);
+          const elToken = uuidv4();
+          await elFile.save(elBuffer, {
+            metadata: { 
+              contentType: elMime,
+              metadata: {
+                firebaseStorageDownloadTokens: elToken
+              }
+            }
+          });
+          elemDownloadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(elFile.name)}?alt=media&token=${elToken}`;
+        }
+      }
+
+      const docRef = await db.collection("vr_shares").add({
+        backgroundImageUrl: bgDownloadUrl,
+        elementImageUrl: elemDownloadUrl,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      res.json({ success: true, shareId: docRef.id });
+    } catch (error: any) {
+      console.error("VR Share Error:", error);
+      require('fs').writeFileSync('vr_share_error.log', error.stack || error.message);
       res.status(500).json({ error: error.message });
     }
   });

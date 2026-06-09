@@ -51,6 +51,11 @@
     <meta name="referrer" content="no-referrer-when-downgrade" />
     <link rel="canonical" href="https://smartads.com.co" />
 
+    <!-- Google Search / Schema.org -->
+    <meta itemprop="name" content="Smart ADS | Anuncios Inteligentes y Estrategia de Medios con IA" />
+    <meta itemprop="description" content="Revoluciona tus campañas digitales con Smart ADS. Planifica presupuestos óptimos, genera copys persuasivos y crea modelos 3D." />
+    <meta itemprop="image" content="https://smartads.com.co/favicon.svg" />
+
     <!-- Geo-Targeting (SEO Regional y Localizado) -->
     <meta name="geo.region" content="CO" />
     <meta name="geo.placename" content="Colombia" />
@@ -83,8 +88,7 @@
     <meta name="twitter:image" content="https://img.youtube.com/vi/dQw4w9WgXcQ/maxresdefault.jpg" />
 
     <!-- Favicon e Icono de la marca -->
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="alternate icon" href="/favicon.svg" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" sizes="any" />
     <link rel="apple-touch-icon" href="/favicon.svg" />
 
     <!-- Schema.org - Datos Estructurados para Google (SEO Avanzado y Logo) -->
@@ -95,13 +99,9 @@
       "name": "Smart ADS",
       "alternateName": "Smart ADS Neural Engine",
       "url": "https://smartads.com.co",
-      "logo": "https://smartads.com.co/logo.png",
-      "description": "Optimiza tu inversión y escala tus resultados con el Sistema Neural Smart ADS: analiza datos históricos de rendimiento, planifica planes de medios estratégicos, crea anuncios persuasivos de alto impacto y publica tus campañas ganadoras.",
-      "contactPoint": {
-        "@type": "ContactPoint",
-        "telephone": "",
-        "contactType": "customer service"
-      }
+      "logo": "https://smartads.com.co/favicon.svg",
+      "image": "https://smartads.com.co/favicon.svg",
+      "description": "Optimiza tu inversión y escala tus resultados con el Sistema Neural Smart ADS: analiza datos históricos de rendimiento, planifica planes de medios estratégicos, crea anuncios persuasivos de alto impacto y publica tus campañas ganadoras."
     }
     </script>
     <script type="application/ld+json">
@@ -112,7 +112,10 @@
       "url": "https://smartads.com.co",
       "potentialAction": {
         "@type": "SearchAction",
-        "target": "https://smartads.com.co/?q={search_term_string}",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://smartads.com.co/?q={search_term_string}"
+        },
         "query-input": "required name=search_term_string"
       }
     }
@@ -124,6 +127,7 @@
       "name": "Smart ADS Neural Platform",
       "operatingSystem": "All",
       "applicationCategory": "BusinessApplication",
+      "image": "https://smartads.com.co/favicon.svg",
       "offers": {
         "@type": "Offer",
         "price": "0",
@@ -173,11 +177,11 @@
     <!-- End Meta Pixel Code (noscript) -->
     <div id="root">
       <!-- SEO Fallback Content (Crawlable por buscadores antes de la hidratación de React/JS) -->
-      <header style="display: none;">
+      <header>
         <h1>Smart ADS | Anuncios Inteligentes y Estrategia de Medios con IA</h1>
         <p>Revoluciona tus campañas digitales con Smart ADS. Planifica presupuestos óptimos, genera copys persuasivos, crea modelos 3D y optimiza imágenes con inteligencia artificial neural de última generación.</p>
       </header>
-      <main style="display: none;">
+      <main>
         <section>
           <h2>Herramientas Neurales Avanzadas</h2>
           <ul>

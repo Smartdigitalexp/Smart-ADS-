@@ -24,5 +24,12 @@ service cloud.firestore {
     match /users/{userId} {
       allow read, write: if isSignedIn() && request.auth.uid == userId;
     }
+
+    match /vr_shares/{shareId} {
+      allow read, write: if true;
+    }
+    match /vr_shares/{shareId}/chunks/{chunkId} {
+      allow read, write: if true;
+    }
   }
 }

@@ -248,6 +248,74 @@ export default function App() {
   // Firebase & History State
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
+  const [sharedVRData, setSharedVRData] = useState<{
+    backgroundImageUrl: string;
+    elementImageUrl: string | null;
+    insertType?: 'none' | 'text' | 'image' | '3d_model';
+    selected3DShape?: 'cube' | 'torus' | 'pyramid' | 'torusknot' | 'sphere';
+    model3DStyle?: 'wireframe' | 'solid' | 'glowing';
+    model3DColor?: string;
+    elemLat?: number;
+    elemLon?: number;
+    elemDistance?: number;
+    elemScale?: number;
+    hologramText?: string;
+    textColor?: string;
+    textSize?: number;
+  } | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const vrShareId = params.get('vr_share');
+    if (vrShareId) {
+      const loadSharedVR = async () => {
+        try {
+          const docRef = doc(db, 'vr_shares', vrShareId);
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            
+            // Reconstruct chunked background
+            let reconstructedBgUrl = '';
+            if (data.totalChunks) {
+              const chunksRef = collection(db, 'vr_shares', vrShareId, 'chunks');
+              const idxQuery = query(chunksRef, orderBy('index', 'asc'));
+              const chunkDocs = await getDocs(idxQuery);
+              chunkDocs.forEach(d => {
+                reconstructedBgUrl += d.data().data;
+              });
+            } else if (data.backgroundImageUrl) {
+              reconstructedBgUrl = data.storageLink ? `/api/proxy-image?url=${encodeURIComponent(data.backgroundImageUrl)}` : data.backgroundImageUrl;
+            }
+
+            const elementUrl = data.storageLink && data.elementImageUrl ? `/api/proxy-image?url=${encodeURIComponent(data.elementImageUrl)}` : (data.elementImageUrl || null);
+
+            setSharedVRData({
+              backgroundImageUrl: reconstructedBgUrl,
+              elementImageUrl: elementUrl,
+              insertType: data.insertType,
+              selected3DShape: data.selected3DShape,
+              model3DStyle: data.model3DStyle,
+              model3DColor: data.model3DColor,
+              elemLat: data.elemLat,
+              elemLon: data.elemLon,
+              elemDistance: data.elemDistance,
+              elemScale: data.elemScale,
+              hologramText: data.hologramText,
+              textColor: data.textColor,
+              textSize: data.textSize
+            });
+            setShowVRViewer(true);
+          } else {
+            console.error("Shared VR not found");
+          }
+        } catch (e) {
+          console.error("Error loading shared VR:", e);
+        }
+      };
+      loadSharedVR();
+    }
+  }, []);
   const [showHistory, setShowHistory] = useState(false);
   const [isFetchingHistory, setIsFetchingHistory] = useState(false);
   const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(null);
@@ -1961,6 +2029,32 @@ export default function App() {
       document.body.removeChild(link);
     }
   };
+
+  if (sharedVRData && showVRViewer) {
+    return (
+      <div className="w-screen h-screen bg-black overflow-hidden m-0 p-0 fixed inset-0 z-[99999]">
+        <VR360Viewer 
+          backgroundImageUrl={sharedVRData.backgroundImageUrl} 
+          elementImageUrl={sharedVRData.elementImageUrl || null}
+          isViewOnly={true}
+          onClose={() => {
+            window.location.href = window.location.origin + window.location.pathname;
+          }} 
+          initialInsertType={sharedVRData.insertType || 'none'}
+          initial3DShape={sharedVRData.selected3DShape || 'cube'}
+          initial3DColor={sharedVRData.model3DColor || '#00d1ff'}
+          initial3DStyle={sharedVRData.model3DStyle || 'wireframe'}
+          initialElemLat={sharedVRData.elemLat}
+          initialElemLon={sharedVRData.elemLon}
+          initialElemDistance={sharedVRData.elemDistance}
+          initialElemScale={sharedVRData.elemScale}
+          initialHologramText={sharedVRData.hologramText}
+          initialTextColor={sharedVRData.textColor}
+          initialTextSize={sharedVRData.textSize}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-deep-blue">
@@ -5580,14 +5674,29 @@ export default function App() {
 
       {showVRViewer && (
         <VR360Viewer 
-          backgroundImageUrl={toolResult || visualPreview || null} 
-          elementImageUrl={elementPreview}
-          onClose={() => setShowVRViewer(false)} 
+          backgroundImageUrl={sharedVRData?.backgroundImageUrl || toolResult || visualPreview || null} 
+          elementImageUrl={sharedVRData?.elementImageUrl || elementPreview}
+          isViewOnly={!!sharedVRData}
+          onClose={() => {
+            setShowVRViewer(false);
+            if (sharedVRData) {
+              // Clear shared VR parameter if we close it to return to normal app
+              window.history.replaceState({}, document.title, window.location.pathname);
+              setSharedVRData(null);
+            }
+          }} 
           onPublishMetaAds={handlePublishVRAd}
-          initialInsertType={vr360InsertType}
-          initial3DShape={vr360Selected3DShape}
-          initial3DColor={vr360Model3DColor}
-          initial3DStyle={vr360Model3DStyle}
+          initialInsertType={sharedVRData?.insertType || vr360InsertType}
+          initial3DShape={sharedVRData?.selected3DShape || vr360Selected3DShape}
+          initial3DColor={sharedVRData?.model3DColor || vr360Model3DColor}
+          initial3DStyle={sharedVRData?.model3DStyle || vr360Model3DStyle}
+          initialElemLat={sharedVRData?.elemLat}
+          initialElemLon={sharedVRData?.elemLon}
+          initialElemDistance={sharedVRData?.elemDistance}
+          initialElemScale={sharedVRData?.elemScale}
+          initialHologramText={sharedVRData?.hologramText}
+          initialTextColor={sharedVRData?.textColor}
+          initialTextSize={sharedVRData?.textSize}
         />
       )}
 

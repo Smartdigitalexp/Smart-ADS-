@@ -1,6 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { injectGPanoMetadata } from '../utils/metadataInjector';
+import { VRButton } from 'three/examples/jsm/webxr/VRButton.js';
+import { injectGPanoMetadata, injectSphericalMetadataToMP4 } from '../utils/metadataInjector';
+import { db, storage } from '../lib/firebase';
+import { ref, uploadString, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { collection, addDoc, serverTimestamp, setDoc, doc } from 'firebase/firestore';
 import { 
   Globe, 
   Move, 
@@ -27,7 +31,9 @@ import {
   ZoomIn,
   ZoomOut,
   RotateCcw,
-  Keyboard
+  Keyboard,
+  Share2,
+  Link
 } from 'lucide-react';
 
 interface VR360ViewerProps {
@@ -39,6 +45,14 @@ interface VR360ViewerProps {
   initial3DShape?: 'cube' | 'torus' | 'pyramid' | 'torusknot' | 'sphere';
   initial3DColor?: string;
   initial3DStyle?: 'wireframe' | 'solid' | 'glowing';
+  isViewOnly?: boolean;
+  initialElemLat?: number;
+  initialElemLon?: number;
+  initialElemDistance?: number;
+  initialElemScale?: number;
+  initialHologramText?: string;
+  initialTextColor?: string;
+  initialTextSize?: number;
 }
 
 export const VR360Viewer: React.FC<VR360ViewerProps> = ({
@@ -49,11 +63,23 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
   initialInsertType,
   initial3DShape,
   initial3DColor,
-  initial3DStyle
+  initial3DStyle,
+  isViewOnly = false,
+  initialElemLat,
+  initialElemLon,
+  initialElemDistance,
+  initialElemScale,
+  initialHologramText,
+  initialTextColor,
+  initialTextSize
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const model3DGroupRef = useRef<THREE.Group | null>(null);
+  const elementMeshRef = useRef<THREE.Mesh | null>(null);
 
   // Local state for interactive 3D product modeled image
   const [localElementImageUrl, setLocalElementImageUrl] = useState<string | null>(elementImageUrl || null);
@@ -69,9 +95,9 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
   const [insertType, setInsertType] = useState<'none' | 'text' | 'image' | '3d_model'>(
     initialInsertType || (elementImageUrl ? 'image' : 'none')
   );
-  const [hologramText, setHologramText] = useState('SMART VR AD');
-  const [textColor, setTextColor] = useState('#00d1ff');
-  const [textSize, setTextSize] = useState(36);
+  const [hologramText, setHologramText] = useState(initialHologramText || 'SMART VR AD');
+  const [textColor, setTextColor] = useState(initialTextColor || '#00d1ff');
+  const [textSize, setTextSize] = useState(initialTextSize ?? 36);
 
   // States for 3D modeled elements option in 360 view
   const [selected3DShape, setSelected3DShape] = useState<'cube' | 'torus' | 'pyramid' | 'torusknot' | 'sphere'>(
@@ -84,16 +110,18 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
   const [model3DRotationSpeed, setModel3DRotationSpeed] = useState<number>(1);
   
   // Positional status
-  const [elemLat, setElemLat] = useState(0);
-  const [elemLon, setElemLon] = useState(0);
-  const [elemDistance, setElemDistance] = useState(250);
-  const [elemScale, setElemScale] = useState(3);
+  const [elemLat, setElemLat] = useState(initialElemLat ?? 0);
+  const [elemLon, setElemLon] = useState(initialElemLon ?? 0);
+  const [elemDistance, setElemDistance] = useState(initialElemDistance ?? 250);
+  const [elemScale, setElemScale] = useState(initialElemScale ?? 3);
   
   // Export and conversion state
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState('');
   const [exportFormat, setExportFormat] = useState<'png' | 'jpg'>('jpg');
-  const [exportResolution, setExportResolution] = useState<'high' | 'max' | 'ultra_8k'>('ultra_8k');
+  const [exportResolution, setExportResolution] = useState<'high' | 'max' | 'ultra_8k'>('high');
+  const [isSharing, setIsSharing] = useState(false);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
   
   // Interactive variables
   const [autoRotate, setAutoRotate] = useState(true);
@@ -103,7 +131,7 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
 
   // Full-screen and panel toggle states for optimized 360 presentation
   const [isFullScreen, setIsFullScreen] = useState(true);
-  const [showSidebar, setShowSidebar] = useState(true);
+  const [showSidebar, setShowSidebar] = useState(!isViewOnly);
   const [currentFov, setCurrentFov] = useState(75);
   const [currentCoords, setCurrentCoords] = useState({ x: 0, y: 0, z: 0 });
   const [hudMode, setHudMode] = useState<'look' | 'move'>('look');
@@ -176,7 +204,12 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
     physicsBounciness: 0.65,
     physicsFriction: 0.25,
     physicsGravity: 1.0,
-    physicsThrowTrigger: false
+    physicsThrowTrigger: false,
+    isDraggingModel: false,
+    modelLastX: 0,
+    modelLastY: 0,
+    manualModelRotX: 0,
+    manualModelRotY: 0
   });
 
   // Track state changes to refs so the animation loop always has fresh data
@@ -299,6 +332,85 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
     setCurrentCoords({ x: 0, y: 0, z: 0 });
   };
 
+  // Generate shareable URL for VR meta-universe view
+  const handleShare = async () => {
+    if (!backgroundImageUrl) return;
+    setIsSharing(true);
+    setExportProgress('Autenticando servicio inmersivo...');
+    try {
+      // Ensure user is at least authenticated anonymously to bypass storage rules
+      const { getAuth, signInAnonymously } = await import('firebase/auth');
+      const auth = getAuth();
+      if (!auth.currentUser) {
+        await signInAnonymously(auth);
+      }
+
+      setExportProgress('Procesando datos para la nube...');
+      const isVideo = backgroundImageUrl.startsWith('data:video') || backgroundImageUrl.includes('video');
+      const extension = isVideo ? '.mp4' : '.jpg';
+      const storageRefPrefix = `vr_shares/shared_vr_${Date.now()}`;
+      
+      const { ref: storageRef, uploadBytes, uploadString, getDownloadURL } = await import('firebase/storage');
+      
+      const backgroundRef = storageRef(storage, `${storageRefPrefix}${extension}`);
+      setExportProgress('Subiendo textura de entorno 360° a Storage...');
+      
+      let bgDownloadUrl = '';
+      try {
+        const response = await fetch(backgroundImageUrl);
+        const blob = await response.blob();
+        await uploadBytes(backgroundRef, blob);
+      } catch (e) {
+        console.warn("Blob conversion failed, using string upload");
+        await uploadString(backgroundRef, backgroundImageUrl, 'data_url');
+      }
+      bgDownloadUrl = await getDownloadURL(backgroundRef);
+
+      let elemDownloadUrl = null;
+      if (elementImageUrl && insertType !== 'none') {
+        setExportProgress('Subiendo elementos holográficos...');
+        const elRef = storageRef(storage, `${storageRefPrefix}_element.png`);
+        try {
+          const response = await fetch(elementImageUrl);
+          const blob = await response.blob();
+          await uploadBytes(elRef, blob);
+        } catch (e) {
+          await uploadString(elRef, elementImageUrl, 'data_url');
+        }
+        elemDownloadUrl = await getDownloadURL(elRef);
+      }
+
+      setExportProgress('Sincronizando metadatos indexados...');
+      const docRef = await addDoc(collection(db, 'vr_shares'), {
+        backgroundImageUrl: bgDownloadUrl,
+        elementImageUrl: elemDownloadUrl,
+        storageLink: true,
+        insertType,
+        selected3DShape,
+        model3DStyle,
+        model3DColor,
+        elemLat,
+        elemLon,
+        elemDistance,
+        elemScale,
+        hologramText,
+        textColor,
+        textSize,
+        createdAt: serverTimestamp()
+      });
+
+      const fullShareUrl = `${window.location.origin}${window.location.pathname}?vr_share=${docRef.id}`;
+      console.log("SHARE URL GENERATED:", fullShareUrl);
+      setShareUrl(fullShareUrl);
+    } catch (e: any) {
+      console.error("Full Share Error:", e);
+      setExportProgress(`Error crítico: ${e.message}`);
+      setTimeout(() => setExportProgress(''), 5000);
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
   // Export Scene to GLB (Meta Ads)
   const handleExportGLB = async () => {
     if (!sceneRef.current) return;
@@ -393,16 +505,29 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
     const isVideo = backgroundImageUrl?.startsWith('data:video') || backgroundImageUrl?.endsWith('.mp4') || backgroundImageUrl?.includes('video');
     
     if (isVideo && backgroundImageUrl) {
-      // It's a video: download the MP4 file directly with standard .mp4 extension (is H.264 compatible)
+      // It's a video: inject spherical metadata and download the MP4 file
       setIsExporting(true);
-      setExportProgress('Empaquetando video 360° en formato MP4 H.264 8K Seamless...');
+      setExportProgress('Empaquetando video 360° con metadatos VR (MP4 H.264)...');
       setTimeout(() => {
-        const link = document.createElement('a');
-        link.href = backgroundImageUrl;
-        link.download = `smart_ads_360_video_8k_${Date.now()}.mp4`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        try {
+          const finalDataUrl = injectSphericalMetadataToMP4(backgroundImageUrl);
+          const link = document.createElement('a');
+          link.href = finalDataUrl;
+          link.download = `smart_ads_360_video_vr_${Date.now()}.mp4`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          setTimeout(() => URL.revokeObjectURL(finalDataUrl), 200);
+        } catch (err) {
+          console.error("Error injectando metadatos MP4:", err);
+          // Fallback to original
+          const link = document.createElement('a');
+          link.href = backgroundImageUrl;
+          link.download = `smart_ads_360_video_8k_${Date.now()}.mp4`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }
         setIsExporting(false);
         setExportProgress('');
       }, 500);
@@ -496,41 +621,123 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
 
       await loadBg();
 
-      // STEP 2: Load and overlay the modeled custom product image (elementImageUrl)
-      if (localElementImageUrl) {
+      // STEP 2: Load and overlay the modeled custom product image or 3D Render
+      if (localElementImageUrl || insertType === '3d_model' || insertType === 'text') {
         setExportProgress('Incrustando y alineando tridimensionalmente tu producto modelado...');
-        await new Promise<void>((resolveElement) => {
-          const elemImg = new Image();
-          elemImg.crossOrigin = 'anonymous';
-          elemImg.onload = () => {
-            // Map spherical coordinates to equirectangular 2D pixels
-            // elemLon goes from -180 to 180 (X corresponds to longitude)
-            // In Three.js flipped sphere scale(-1, 1, 1), coordinates are mapped as u = (180 - elemLon) / 360
-            const u = (180 - elemLon) / 360; 
-            // elemLat goes from -90 (South) to 90 (North)
-            const v = (90 - elemLat) / 180;
+        
+        let sourceToDraw = localElementImageUrl;
+        
+        // High-fidelity full WebGL volume extraction for 3D model/text mode
+        if ((insertType === '3d_model' || insertType === 'text') && rendererRef.current && sceneRef.current) {
+          const renderer = rendererRef.current;
+          const scene = sceneRef.current;
+          const activeGroup = (insertType === '3d_model') ? model3DGroupRef.current : elementMeshRef.current;
 
-            const drawX = u * width;
-            const drawY = v * height;
+          if (activeGroup) {
+            // Save existing scene state
+            const oldBg = scene.background;
+            scene.background = null;
 
-            const aspect = elemImg.width / elemImg.height;
-            // Proportional sizing: standard is elemScale % of canvas height
-            const elementHeight = (elemScale / 12) * height;
-            const elementWidth = elementHeight * aspect;
+            const oldModelPos = activeGroup.position.clone();
+            const oldModelRot = activeGroup.rotation.clone();
+            activeGroup.position.set(0, 0, 0);
+            activeGroup.rotation.set(0, 0, 0);
 
-            // Draw element image aligned precisely to the spatial center coordinate
-            const x = drawX - elementWidth / 2;
-            const y = drawY - elementHeight / 2;
+            // Calculate the exact bounding height dimensions
+            let heightInUnits = 100;
+            if (insertType === '3d_model') {
+              heightInUnits = 36 * 0.9 * elemScale * 1.1; // 10% padding for rotation bounds
+              // Put back the original rotation so we capture the current frame of the 3D spinning model
+              activeGroup.rotation.copy(oldModelRot);
+            } else {
+              heightInUnits = 100 * (elemScale * 10) * 1.1; // plane height * scale * padding
+              // Explicitly reset rotation so the orthographic plane faces the snapCamera
+              activeGroup.rotation.set(0, 0, 0);
+            }
 
-            ctx.drawImage(elemImg, x, y, elementWidth, elementHeight);
-            resolveElement();
-          };
-          elemImg.onerror = (err) => {
-            console.error('Error loading modeled product image for overlay rendering:', err);
-            resolveElement();
-          };
-          elemImg.src = localElementImageUrl;
-        });
+            // Create OrthographicCamera to perfectly bound the 3D object/text
+            const snapCamera = new THREE.OrthographicCamera(
+              -heightInUnits/2, heightInUnits/2,
+               heightInUnits/2, -heightInUnits/2,
+              0.1, 10000
+            );
+            snapCamera.position.set(0, 0, 5000);
+            snapCamera.lookAt(0, 0, 0);
+
+            const rtSize = 1024;
+            const rt = new THREE.WebGLRenderTarget(rtSize, rtSize, { format: THREE.RGBAFormat });
+            renderer.setRenderTarget(rt);
+            renderer.setClearColor(0x000000, 0);
+            renderer.clear();
+            renderer.render(scene, snapCamera);
+            renderer.setRenderTarget(null);
+
+            const pixels = new Uint8Array(rtSize * rtSize * 4);
+            renderer.readRenderTargetPixels(rt, 0, 0, rtSize, rtSize, pixels);
+
+            const offCanvas = document.createElement('canvas');
+            offCanvas.width = rtSize;
+            offCanvas.height = rtSize;
+            const offCtx = offCanvas.getContext('2d');
+            if (offCtx) {
+              const imgData = offCtx.createImageData(rtSize, rtSize);
+              for (let y = 0; y < rtSize; y++) {
+                for (let x = 0; x < rtSize; x++) {
+                   const srcY = (rtSize - 1) - y;
+                   const destIdx = (y * rtSize + x) * 4;
+                   const srcIdx = (srcY * rtSize + x) * 4;
+                   imgData.data[destIdx] = pixels[srcIdx];
+                   imgData.data[destIdx+1] = pixels[srcIdx+1];
+                   imgData.data[destIdx+2] = pixels[srcIdx+2];
+                   imgData.data[destIdx+3] = pixels[srcIdx+3];
+                }
+              }
+              offCtx.putImageData(imgData, 0, 0);
+              sourceToDraw = offCanvas.toDataURL('image/png');
+            }
+
+            activeGroup.position.copy(oldModelPos);
+            activeGroup.rotation.copy(oldModelRot);
+            scene.background = oldBg;
+            rt.dispose();
+          }
+        }
+
+        if (sourceToDraw) {
+          await new Promise<void>((resolveElement) => {
+            const elemImg = new Image();
+            elemImg.crossOrigin = 'anonymous';
+            elemImg.onload = () => {
+              // Map spherical coordinates to equirectangular 2D pixels
+              // elemLon goes from -180 to 180 (X corresponds to longitude)
+              // In Three.js flipped sphere scale(-1, 1, 1), coordinates are mapped as u = (180 - elemLon) / 360
+              const u = (180 - elemLon) / 360; 
+              // elemLat goes from -90 (South) to 90 (North)
+              const v = (90 - elemLat) / 180;
+
+              const drawX = u * width;
+              const drawY = v * height;
+
+              const aspect = elemImg.width / elemImg.height;
+              // Proportional sizing: standard is elemScale % of canvas height, but since we use Orthographic padded crop, we multiply by 1.1 to preserve original optical size
+              const scaleAdjust = (insertType === '3d_model' || insertType === 'text') ? 1.1 : 1.0;
+              const elementHeight = (elemScale / 12) * height * scaleAdjust;
+              const elementWidth = elementHeight * aspect;
+
+              // Draw element image aligned precisely to the spatial center coordinate
+              const x = drawX - elementWidth / 2;
+              const y = drawY - elementHeight / 2;
+
+              ctx.drawImage(elemImg, x, y, elementWidth, elementHeight);
+              resolveElement();
+            };
+            elemImg.onerror = (err) => {
+              console.error('Error loading modeled product image for overlay rendering:', err);
+              resolveElement();
+            };
+            elemImg.src = sourceToDraw;
+          });
+        }
       }
 
       // STEP 3: Save and triggers standard download workflow
@@ -638,15 +845,43 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
     const scene = new THREE.Scene();
     sceneRef.current = scene;
     const camera = new THREE.PerspectiveCamera(75, width / height, 1, 1100);
+    cameraRef.current = camera;
+    
+    // Create a Dolly rig for WebXR Locomotion
+    const dolly = new THREE.Group();
+    dolly.position.set(0, 0, 0);
+    dolly.add(camera);
+    scene.add(dolly);
 
     // 2. Renderer Setup
     const renderer = new THREE.WebGLRenderer({
       canvas: canvasRef.current,
       antialias: true,
-      alpha: true
+      alpha: true,
+      powerPreference: "high-performance"
     });
+    rendererRef.current = renderer;
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(width, height);
+    renderer.xr.enabled = true;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    
+    // High-quality Rendering Optimizations (PBR Tone Mapping & Shadows)
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    pmremGenerator.compileEquirectangularShader();
+    
+    const vrButtonElement = VRButton.createButton(renderer);
+    vrButtonElement.style.position = 'absolute';
+    vrButtonElement.style.bottom = '20px';
+    vrButtonElement.style.left = '50%';
+    vrButtonElement.style.transform = 'translateX(-50%)';
+    vrButtonElement.style.zIndex = '9999';
+    containerRef.current.appendChild(vrButtonElement);
 
     // 3. 360 Sphere Generation Area
     const geometry = new THREE.SphereGeometry(500, 60, 40);
@@ -654,12 +889,25 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
     geometry.scale(-1, 1, 1);
 
     const textureLoader = new THREE.TextureLoader();
+    textureLoader.setCrossOrigin('anonymous');
     let sphereMaterial = new THREE.MeshBasicMaterial({ color: 0x111115 });
     const sphere = new THREE.Mesh(geometry, sphereMaterial);
     scene.add(sphere);
 
     // Check if the background is a 360 Video
     const isVideo360 = backgroundImageUrl?.startsWith('data:video') || backgroundImageUrl?.endsWith('.mp4') || backgroundImageUrl?.includes('video');
+
+    // Add Lighting for High-End PBR Rendering
+    const globalAmbientLight = new THREE.AmbientLight(0xffffff, 0.4);
+    scene.add(globalAmbientLight);
+    
+    // Directional (sun, or main highlight)
+    const globalDirLight = new THREE.DirectionalLight(0xffffff, 2.0);
+    globalDirLight.position.set(5, 10, 7.5);
+    globalDirLight.castShadow = true;
+    globalDirLight.shadow.mapSize.width = 1024;
+    globalDirLight.shadow.mapSize.height = 1024;
+    scene.add(globalDirLight);
 
     // Load panorama background texture live
     setLoading(true);
@@ -681,6 +929,10 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
         videoTexture.wrapS = THREE.RepeatWrapping;
         videoTexture.wrapT = THREE.ClampToEdgeWrapping;
         sphere.material = new THREE.MeshBasicMaterial({ map: videoTexture });
+        
+        // Environment mapping for reflections
+        scene.environment = pmremGenerator.fromEquirectangular(videoTexture).texture;
+        
         setLoading(false);
       } catch (err) {
         console.error("Error creating VideoTexture:", err);
@@ -697,6 +949,10 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
           texture.magFilter = THREE.LinearFilter;
           texture.generateMipmaps = true;
           sphere.material = new THREE.MeshBasicMaterial({ map: texture });
+          
+          // Environment mapping for reflections
+          scene.environment = pmremGenerator.fromEquirectangular(texture).texture;
+          
           setLoading(false);
         },
         undefined,
@@ -773,10 +1029,12 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
     // Create a physical billboard plane
     const planeGeom = new THREE.PlaneGeometry(100, 100);
     elementMesh = new THREE.Mesh(planeGeom, elementMaterial);
+    elementMeshRef.current = elementMesh;
     scene.add(elementMesh);
 
     // Dynamic 3D model container
     const model3DGroup = new THREE.Group();
+    model3DGroupRef.current = model3DGroup;
     scene.add(model3DGroup);
 
     let current3DShape = '';
@@ -795,7 +1053,10 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
       // Apply real-time perspective zoom adjustments (FOV mapping)
       if (camera.fov !== state.fov) {
         camera.fov = state.fov;
-        camera.updateProjectionMatrix();
+        // Do not manual override projection matrix if headset is present
+        if (!renderer.xr.isPresenting) {
+          camera.updateProjectionMatrix();
+        }
       }
 
       // Handle Autopilot panorama scanning rotation
@@ -813,11 +1074,47 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
       target.y = Math.cos(phi);
       target.z = Math.sin(phi) * Math.cos(theta);
 
-      // Update camera spatial position from the displacement coordinates
-      camera.position.set(state.posX || 0, state.posY || 0, state.posZ || 0);
-
-      // Point the camera look direction outwards relative to its translation offset
-      camera.lookAt(camera.position.x + target.x, camera.position.y + target.y, camera.position.z + target.z);
+      if (!renderer.xr.isPresenting) {
+        // Desktop math mode: update camera space directly
+        camera.position.set(state.posX || 0, state.posY || 0, state.posZ || 0);
+        camera.lookAt(camera.position.x + target.x, camera.position.y + target.y, camera.position.z + target.z);
+      } else {
+        // WebXR VR mode: dolly translation via Joysticks / spatial coordinates
+        dolly.position.set(state.posX || 0, state.posY || 0, state.posZ || 0);
+        
+        // Scan for active gamepads for continuous analog displacement
+        const session = renderer.xr.getSession();
+        if (session && session.inputSources) {
+          for (const source of session.inputSources) {
+            if (source && source.gamepad) {
+              const axes = source.gamepad.axes;
+              // Left or Right thumbstick axes [2]=X, [3]=Y
+              if (axes.length >= 4) {
+                const xAxis = axes[2];
+                const yAxis = axes[3];
+                // Deadzone filter
+                if (Math.abs(xAxis) > 0.1 || Math.abs(yAxis) > 0.1) {
+                  const vrSpeed = 3.0;
+                  
+                  // Compute headset orientation heading mapped on XZ plane
+                  const cameraDir = new THREE.Vector3();
+                  camera.getWorldDirection(cameraDir);
+                  cameraDir.y = 0;
+                  cameraDir.normalize();
+                  
+                  const rightDir = new THREE.Vector3().crossVectors(cameraDir, new THREE.Vector3(0, 1, 0));
+                  
+                  state.posX += cameraDir.x * (-yAxis * vrSpeed) + rightDir.x * (xAxis * vrSpeed);
+                  state.posZ += cameraDir.z * (-yAxis * vrSpeed) + rightDir.z * (xAxis * vrSpeed);
+                  state.posY -= axes[1] * vrSpeed; // if right stick vertically mapped
+                  
+                  setCurrentCoords({ x: Math.round(state.posX), y: Math.round(state.posY), z: Math.round(state.posZ) });
+                }
+              }
+            }
+          }
+        }
+      }
 
       // Render 3D Helper grid when enabled
       gridGroup.visible = state.showGrid;
@@ -838,6 +1135,9 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
           const staticY = state.elemDistance * Math.sin(radLat);
           const staticZ = state.elemDistance * Math.cos(radLat) * Math.cos(radLon);
           const currentStaticKey = `${state.elemDistance},${state.elemLat},${state.elemLon}`;
+
+          let dtRotX = 0;
+          let dtRotY = 0;
 
           if (state.physicsEnabled) {
             // If the user has just adjusted sliders, or if not yet initialized, sync positions to match sliders!
@@ -916,13 +1216,12 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
               physicsStateRef.current.z
             );
 
-            // Friction dampener for object rotators when laying motionless on floor
             if (physicsStateRef.current.y === floorLimit && Math.abs(physicsStateRef.current.vx) < 0.2 && Math.abs(physicsStateRef.current.vz) < 0.2) {
-              model3DGroup.rotation.x += 0.001;
-              model3DGroup.rotation.y += 0.002;
+              dtRotX = 0.001;
+              dtRotY = 0.002;
             } else {
-              model3DGroup.rotation.x += 0.005 * state.model3DRotationSpeed;
-              model3DGroup.rotation.y += 0.01 * state.model3DRotationSpeed;
+              dtRotX = 0.005 * state.model3DRotationSpeed;
+              dtRotY = 0.01 * state.model3DRotationSpeed;
             }
           } else {
             // Physics disabled: static coordinate positioning from elements coordinates
@@ -937,9 +1236,17 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
 
             model3DGroup.position.set(staticX, staticY, staticZ);
             
-            model3DGroup.rotation.x += 0.005 * state.model3DRotationSpeed;
-            model3DGroup.rotation.y += 0.01 * state.model3DRotationSpeed;
+            dtRotX = 0.005 * state.model3DRotationSpeed;
+            dtRotY = 0.01 * state.model3DRotationSpeed;
           }
+
+          if (!state.isDraggingModel) {
+            state.manualModelRotX += dtRotX;
+            state.manualModelRotY += dtRotY;
+          }
+          
+          model3DGroup.rotation.x = state.manualModelRotX;
+          model3DGroup.rotation.y = state.manualModelRotY;
 
           // Scale
           const baseScale = state.elemScale * 0.9;
@@ -1022,20 +1329,24 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
                 const customMeshThickness = parseFloat(localStorage.getItem('product_3d_mesh_thickness') || '4');
                 const customColorHex = parseInt(customAccentColor.replace('#', '0x'));
 
-                const texturedMaterial = new THREE.MeshStandardMaterial({
+                const texturedMaterial = new THREE.MeshPhysicalMaterial({
                   map: texture,
                   metalness: customMetallic,
                   roughness: customRoughness,
                   transparent: true,
                   alphaTest: 0.1,
-                  side: THREE.DoubleSide
+                  side: THREE.DoubleSide,
+                  clearcoat: 1.0,
+                  clearcoatRoughness: 0.1
                 });
 
-                const frameMaterial = new THREE.MeshStandardMaterial({
+                const frameMaterial = new THREE.MeshPhysicalMaterial({
                   color: customColorHex,
                   metalness: 0.9,
-                  roughness: 0.15,
-                  side: THREE.DoubleSide
+                  roughness: 0.1,
+                  side: THREE.DoubleSide,
+                  clearcoat: 1.0,
+                  clearcoatRoughness: 0.1
                 });
 
                 const w = width || 24;
@@ -1043,17 +1354,40 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
 
                 if (customVolumeType === 'extruded') {
                   const depth = customMeshThickness + 4;
-                  const geo = new THREE.BoxGeometry(w, h, depth);
-                  const faceMats = [
-                    texturedMaterial, // Right
-                    texturedMaterial, // Left
-                    texturedMaterial, // Top
-                    texturedMaterial, // Bottom
-                    texturedMaterial, // Front
-                    texturedMaterial  // Back
-                  ];
-                  const mesh = new THREE.Mesh(geo, faceMats);
-                  model3DGroup.add(mesh);
+                  const layers = 120; // High density for smooth solid edges
+                  const layerStep = depth / layers;
+                  
+                  const geo = new THREE.PlaneGeometry(w, h);
+                  // We must ensure the material is strictly alpha tested to avoid sorting artifacts
+                  const solidMaterial = texturedMaterial.clone();
+                  solidMaterial.transparent = false; // Disable alpha blending
+                  solidMaterial.alphaTest = 0.5;     // Hard cutout
+                  solidMaterial.side = THREE.DoubleSide;
+
+                  // Add a slight darkening effect to inner layers to create fake ambient occlusion
+                  solidMaterial.color.setHex(0xffffff);
+
+                  const instancedMesh = new THREE.InstancedMesh(geo, solidMaterial, layers);
+                  
+                  const dummy = new THREE.Object3D();
+                  const c = new THREE.Color();
+                  for (let i = 0; i < layers; i++) {
+                    dummy.position.set(0, 0, (i - layers / 2) * layerStep);
+                    dummy.updateMatrix();
+                    instancedMesh.setMatrixAt(i, dummy.matrix);
+                    
+                    // The front and back faces are bright, inner layers are slightly shaded for physical depth
+                    if (i === 0 || i === layers - 1) {
+                      instancedMesh.setColorAt(i, c.setHex(0xffffff));
+                    } else {
+                      instancedMesh.setColorAt(i, c.setHex(0xaaaaaa)); // Darker "Core"
+                    }
+                  }
+                  instancedMesh.instanceMatrix.needsUpdate = true;
+                  if (instancedMesh.instanceColor) instancedMesh.instanceColor.needsUpdate = true;
+                  
+                  // Add a darker outline/shadow in the center or sides if desired, but this is enough
+                  model3DGroup.add(instancedMesh);
                 } else if (customVolumeType === 'card_pbr') {
                   const geo = new THREE.PlaneGeometry(w, h);
                   const frontMesh = new THREE.Mesh(geo, texturedMaterial);
@@ -1072,21 +1406,23 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
                   const geo = new THREE.CylinderGeometry(w / 2.2, w / 2.2, h, 48, 1, false);
                   const cylMats = [
                     texturedMaterial, // Side
-                    new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.9, roughness: 0.1 }), // Top cap
-                    new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.9, roughness: 0.1 })  // Bottom cap
+                    new THREE.MeshPhysicalMaterial({ color: 0xcccccc, metalness: 0.9, roughness: 0.1, clearcoat: 1.0, clearcoatRoughness: 0.1 }), // Top cap
+                    new THREE.MeshPhysicalMaterial({ color: 0xcccccc, metalness: 0.9, roughness: 0.1, clearcoat: 1.0, clearcoatRoughness: 0.1 })  // Bottom cap
                   ];
                   const mesh = new THREE.Mesh(geo, cylMats);
                   model3DGroup.add(mesh);
                 } else {
                   // hologram
                   const sphereGeo = new THREE.SphereGeometry(w / 2, 32, 32);
-                  const hologramMat = new THREE.MeshStandardMaterial({
+                  const hologramMat = new THREE.MeshPhysicalMaterial({
                     map: texture,
                     metalness: 0.1,
                     roughness: 0.9,
                     transparent: true,
                     opacity: 0.8,
-                    color: customColorHex
+                    color: customColorHex,
+                    transmission: 0.9, // Add glass-like transmission
+                    ior: 1.5
                   });
                   const innerMesh = new THREE.Mesh(sphereGeo, hologramMat);
                   model3DGroup.add(innerMesh);
@@ -1137,14 +1473,16 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
                   model3DGroup.add(wireMesh);
                 } else {
                   // premium metallic/shaded styling (standard material with real roughness/metalness reflection mappings)
-                  const material = new THREE.MeshStandardMaterial({
+                  const material = new THREE.MeshPhysicalMaterial({
                     color: texture ? 0xffffff : colorHex,
                     map: texture,
-                    roughness: 0.2,
-                    metalness: 0.75,
+                    roughness: 0.1,
+                    metalness: 0.9,
                     transparent: true,
-                    opacity: 0.95,
-                    side: THREE.DoubleSide
+                    opacity: 1.0,
+                    side: THREE.DoubleSide,
+                    clearcoat: 1.0,
+                    clearcoatRoughness: 0.1
                   });
                   const mesh = new THREE.Mesh(geometry, material);
                   model3DGroup.add(mesh);
@@ -1225,22 +1563,58 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
       }
 
       renderer.render(scene, camera);
-      animationFrameId = requestAnimationFrame(updateControls);
     };
 
-    animationFrameId = requestAnimationFrame(updateControls);
+    renderer.setAnimationLoop(updateControls);
 
     // 6. Interactive Cursor dragging listeners
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+
     const onPointerDown = (e: PointerEvent) => {
-      paramsRef.current.isDragging = true;
-      paramsRef.current.startX = e.clientX;
-      paramsRef.current.startY = e.clientY;
-      paramsRef.current.startLon = paramsRef.current.lon;
-      paramsRef.current.startLat = paramsRef.current.lat;
+      // Setup raycaster to detect if hitting the 3D model
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+
+      let hitModel = false;
+      if (model3DGroup && model3DGroup.children.length > 0) {
+        const intersects = raycaster.intersectObjects(model3DGroup.children, true);
+        if (intersects.length > 0) {
+          hitModel = true;
+        }
+      }
+
+      if (hitModel) {
+        paramsRef.current.isDraggingModel = true;
+        paramsRef.current.modelLastX = e.clientX;
+        paramsRef.current.modelLastY = e.clientY;
+      } else {
+        paramsRef.current.isDragging = true;
+        paramsRef.current.startX = e.clientX;
+        paramsRef.current.startY = e.clientY;
+        paramsRef.current.startLon = paramsRef.current.lon;
+        paramsRef.current.startLat = paramsRef.current.lat;
+      }
     };
 
     const onPointerMove = (e: PointerEvent) => {
+      if (paramsRef.current.isDraggingModel) {
+        const dx = e.clientX - paramsRef.current.modelLastX;
+        const dy = e.clientY - paramsRef.current.modelLastY;
+        
+        // Manual rotation for 3D model (y rotates around up axis, x rotates around horizontal)
+        paramsRef.current.manualModelRotY += dx * 0.01;
+        paramsRef.current.manualModelRotX += dy * 0.01;
+        
+        paramsRef.current.modelLastX = e.clientX;
+        paramsRef.current.modelLastY = e.clientY;
+        return;
+      }
+      
       if (!paramsRef.current.isDragging) return;
+      
       const dx = e.clientX - paramsRef.current.startX;
       const dy = e.clientY - paramsRef.current.startY;
       
@@ -1251,6 +1625,7 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
 
     const onPointerUp = () => {
       paramsRef.current.isDragging = false;
+      paramsRef.current.isDraggingModel = false;
     };
 
     const onWheel = (e: WheelEvent) => {
@@ -1361,19 +1736,49 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
     // 7. Observer Resize logic
     const handleResize = () => {
       if (!containerRef.current) return;
-      const newWidth = containerRef.current.clientWidth;
-      const newHeight = containerRef.current.clientHeight;
-      camera.aspect = newWidth / newHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(newWidth, newHeight);
+
+      const performResize = () => {
+        if (!containerRef.current) return;
+        
+        if (renderer.xr.isPresenting) {
+          // When presenting in WebXR, the device controls the projection matrices and drawing buffers.
+          // Never overwrite camera.aspect, camera.updateProjectionMatrix, or renderer.setSize.
+          // Only trigger a forced render pass to clear and sync the viewports.
+          renderer.render(scene, camera);
+          return;
+        }
+
+        const newWidth = containerRef.current.clientWidth;
+        const newHeight = containerRef.current.clientHeight;
+        camera.aspect = newWidth / newHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(newWidth, newHeight);
+      };
+
+      performResize();
+      
+      // Facebook/Oculus browser needs a delayed forced refresh to ensure 
+      // the split-screen API layout changes are fully processed
+      setTimeout(performResize, 100);
+      setTimeout(performResize, 300);
+      setTimeout(performResize, 600);
     };
 
     const resizeObserver = new ResizeObserver(() => handleResize());
     resizeObserver.observe(containerRef.current);
 
+    // Ensure WebXR triggers the manual resize layout immediately upon entry
+    renderer.xr.addEventListener('sessionstart', handleResize);
+    renderer.xr.addEventListener('sessionend', handleResize);
+
     // Cleanup Resources
     return () => {
-      cancelAnimationFrame(animationFrameId);
+      renderer.xr.removeEventListener('sessionstart', handleResize);
+      renderer.xr.removeEventListener('sessionend', handleResize);
+      renderer.setAnimationLoop(null);
+      if (vrButtonElement && vrButtonElement.parentNode) {
+        vrButtonElement.parentNode.removeChild(vrButtonElement);
+      }
       resizeObserver.disconnect();
       canvasEl.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('pointermove', onPointerMove);
@@ -1416,7 +1821,9 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
           <Globe className="text-neon-blue animate-pulse" size={16} />
           <div>
             <div className="flex items-center gap-1.5 flex-wrap">
-              <h4 className="font-orbitron font-bold text-xs text-white uppercase tracking-wider">Simulador VR Inmersivo 360°</h4>
+              <h4 className="font-orbitron font-bold text-xs text-white uppercase tracking-wider">
+                {isViewOnly ? "Experiencia Inmersiva 360°" : "Simulador VR Inmersivo 360°"}
+              </h4>
               {isFullScreen && (
                 <span className="py-0.5 px-1.5 bg-purple-500/10 border border-purple-500/20 text-purple-400 font-mono text-[8px] font-bold uppercase rounded-lg">
                   Modo Inmersivo Completo
@@ -1427,22 +1834,23 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap self-end sm:self-auto">
-          {/* Sidebar Toggle View */}
-          <button 
-            type="button"
-            onClick={() => {
-              setShowSidebar(!showSidebar);
-              setTimeout(() => {
-                window.dispatchEvent(new Event('resize'));
-              }, 100);
-            }}
-            className={`p-1.5 rounded-lg border text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 transition-all ${
-              showSidebar ? 'border-indigo-500 bg-indigo-500/10 text-indigo-400' : 'border-white/10 text-white/50 hover:text-white'
-            }`}
-            title={showSidebar ? "Ocultar panel lateral de edición" : "Mostrar panel lateral de edición"}
-          >
-            <Layers size={10} /> {showSidebar ? "Ocultar Controles" : "Controles"}
-          </button>
+          {!isViewOnly && (
+            <button 
+              type="button"
+              onClick={() => {
+                setShowSidebar(!showSidebar);
+                setTimeout(() => {
+                  window.dispatchEvent(new Event('resize'));
+                }, 100);
+              }}
+              className={`p-1.5 rounded-lg border text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 transition-all ${
+                showSidebar ? 'border-indigo-500 bg-indigo-500/10 text-indigo-400' : 'border-white/10 text-white/50 hover:text-white'
+              }`}
+              title={showSidebar ? "Ocultar panel lateral de edición" : "Mostrar panel lateral de edición"}
+            >
+              <Layers size={10} /> {showSidebar ? "Ocultar Controles" : "Controles"}
+            </button>
+          )}
 
           <button 
             onClick={() => setAutoRotate(!autoRotate)}
@@ -1453,40 +1861,55 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
             <RotateCw size={10} className={autoRotate ? "animate-spin" : ""} /> Giro
           </button>
           
-          <button 
-            onClick={() => setShowGrid(!showGrid)}
-            className={`p-1.5 rounded-lg border text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 transition-all ${
-              showGrid ? 'border-neon-blue bg-neon-blue/10 text-neon-blue' : 'border-white/10 text-white/50 hover:text-white'
-            }`}
-          >
-            <Compass size={10} /> Cuadrícula
-          </button>
+          {!isViewOnly && (
+            <button 
+              onClick={() => setShowGrid(!showGrid)}
+              className={`p-1.5 rounded-lg border text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 transition-all ${
+                showGrid ? 'border-neon-blue bg-neon-blue/10 text-neon-blue' : 'border-white/10 text-white/50 hover:text-white'
+              }`}
+            >
+              <Compass size={10} /> Cuadrícula
+            </button>
+          )}
+
+          {isViewOnly && (
+            <button 
+              onClick={() => {
+                window.location.href = window.location.origin + window.location.pathname;
+              }}
+              className="p-1.5 rounded-lg border border-neon-blue bg-neon-blue/20 text-neon-blue text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 transition-all hover:bg-neon-blue/30 shadow-[0_0_15px_rgba(0,195,255,0.3)]"
+            >
+              <Globe size={10} /> Crea tu Propia Experiencia VR
+            </button>
+          )}
 
           {/* Full Screen Toggle button */}
-          <button 
-            type="button"
-            onClick={() => {
-              setIsFullScreen(!isFullScreen);
-              setTimeout(() => {
-                window.dispatchEvent(new Event('resize'));
-              }, 100);
-            }}
-            className={`p-1.5 rounded-lg border text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 transition-all ${
-              isFullScreen ? 'border-purple-500 bg-purple-500/20 text-purple-300' : 'border-white/10 text-white/70 hover:text-white bg-white/5'
-            }`}
-          >
-            {isFullScreen ? (
-              <>
-                <Minimize2 size={10} /> Vista Normal
-              </>
-            ) : (
-              <>
-                <Maximize2 size={10} /> Pantalla Completa
-              </>
-            )}
-          </button>
+          {!isViewOnly && (
+            <button 
+              type="button"
+              onClick={() => {
+                setIsFullScreen(!isFullScreen);
+                setTimeout(() => {
+                  window.dispatchEvent(new Event('resize'));
+                }, 100);
+              }}
+              className={`p-1.5 rounded-lg border text-[10px] uppercase font-bold tracking-wider flex items-center gap-1.5 transition-all ${
+                isFullScreen ? 'border-purple-500 bg-purple-500/20 text-purple-300' : 'border-white/10 text-white/70 hover:text-white bg-white/5'
+              }`}
+            >
+              {isFullScreen ? (
+                <>
+                  <Minimize2 size={10} /> Vista Normal
+                </>
+              ) : (
+                <>
+                  <Maximize2 size={10} /> Pantalla Completa
+                </>
+              )}
+            </button>
+          )}
           
-          {onClose && (
+          {onClose && !isViewOnly && (
             <button 
               onClick={onClose}
               className="p-1 px-2.5 text-[10px] border border-white/10 rounded bg-red-500/10 text-red-400 hover:bg-red-500/25 uppercase font-bold tracking-widest transition-all"
@@ -1516,17 +1939,20 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
           )}
 
           {/* Canvas Bottom Instructions */}
-          <div className="absolute bottom-4 left-4 bg-black/80 border border-white/15 rounded-lg px-2.5 py-1.5 pointer-events-none flex items-center gap-2 backdrop-blur-md shadow-2xl z-20">
-            <Move size={12} className="text-neon-blue animate-bounce" />
-            <span className="text-[8px] text-white/80 font-mono tracking-widest uppercase">Arrastra o usa controles para explorar 360°</span>
-          </div>
+          {!isViewOnly && showSidebar && (
+            <div className="absolute bottom-4 left-4 bg-black/80 border border-white/15 rounded-lg px-2.5 py-1.5 pointer-events-none flex items-center gap-2 backdrop-blur-md shadow-2xl z-20">
+              <Move size={12} className="text-neon-blue animate-bounce" />
+              <span className="text-[8px] text-white/80 font-mono tracking-widest uppercase">Arrastra o usa controles para explorar 360°</span>
+            </div>
+          )}
 
           {/* Scientific Immersive HUD VR Navigation Controls */}
-          <div className="absolute bottom-4 right-4 z-20 flex flex-col items-end gap-2 text-white max-w-[190px] sm:max-w-[210px]">
-            {/* HUD Glass Box */}
-            <div className="bg-black/90 border border-white/10 backdrop-blur-md p-2.5 sm:p-3 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.85)] w-full flex flex-col gap-2.5 transition-all duration-300 hover:border-neon-blue/40 hover:shadow-[0_8px_32px_rgba(0,195,255,0.15)] select-none">
-              
-              <div className="flex items-center justify-between border-b border-white/10 pb-1.5">
+          {!isViewOnly && showSidebar && (
+            <div className="absolute bottom-4 right-4 z-20 flex flex-col items-end gap-2 text-white max-w-[190px] sm:max-w-[210px]">
+              {/* HUD Glass Box */}
+              <div className="bg-black/90 border border-white/10 backdrop-blur-md p-2.5 sm:p-3 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.85)] w-full flex flex-col gap-2.5 transition-all duration-300 hover:border-neon-blue/40 hover:shadow-[0_8px_32px_rgba(0,195,255,0.15)] select-none">
+                
+                <div className="flex items-center justify-between border-b border-white/10 pb-1.5">
                 <div className="flex items-center gap-1">
                   <Compass size={11} className="text-neon-blue animate-spin" style={{ animationDuration: '4s' }} />
                   <span className="text-[8px] sm:text-[9.5px] font-orbitron font-extrabold tracking-widest text-[#00d1ff] uppercase">Navegación VR</span>
@@ -1799,43 +2225,46 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
 
             </div>
           </div>
+          )}
 
           {/* Floating HUD controls directly inside viewport */}
-          <div className="absolute top-4 right-4 flex items-center gap-1.5 bg-black/75 border border-white/15 backdrop-blur-md p-1.5 rounded-xl z-20 shadow-2xl">
-            <button
-              type="button"
-              onClick={() => {
-                setShowSidebar(!showSidebar);
-                setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
-              }}
-              className={`p-2 rounded-lg text-white/80 hover:text-white transition-all flex items-center gap-1 ${
-                showSidebar ? 'bg-white/10 text-white' : 'hover:bg-white/5'
-              }`}
-              title="Mostrar/Ocultar Panel Lateral"
-            >
-              <Sliders size={12} className={showSidebar ? "text-neon-blue" : "text-white/60"} />
-              <span className="text-[8px] font-bold uppercase tracking-widest hidden sm:inline">Panel</span>
-            </button>
+          {!isViewOnly && (
+            <div className="absolute top-4 right-4 flex items-center gap-1.5 bg-black/75 border border-white/15 backdrop-blur-md p-1.5 rounded-xl z-20 shadow-2xl">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSidebar(!showSidebar);
+                  setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
+                }}
+                className={`p-2 rounded-lg text-white/80 hover:text-white transition-all flex items-center gap-1 ${
+                  showSidebar ? 'bg-white/10 text-white' : 'hover:bg-white/5'
+                }`}
+                title="Mostrar/Ocultar Panel Lateral"
+              >
+                <Sliders size={12} className={showSidebar ? "text-neon-blue" : "text-white/60"} />
+                <span className="text-[8px] font-bold uppercase tracking-widest hidden sm:inline">Panel</span>
+              </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                setIsFullScreen(!isFullScreen);
-                setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
-              }}
-              className="p-2 rounded-lg text-white/80 hover:text-white transition-all flex items-center gap-1 hover:bg-white/5"
-              title={isFullScreen ? "Salir de pantalla completa" : "Ir a pantalla completa"}
-            >
-              {isFullScreen ? <Minimize2 size={12} className="text-purple-400" /> : <Maximize2 size={12} className="text-purple-400" />}
-              <span className="text-[8px] font-bold uppercase tracking-widest hidden sm:inline">
-                {isFullScreen ? "Salir" : "Max"}
-              </span>
-            </button>
-          </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsFullScreen(!isFullScreen);
+                  setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
+                }}
+                className="p-2 rounded-lg text-white/80 hover:text-white transition-all flex items-center gap-1 hover:bg-white/5"
+                title={isFullScreen ? "Salir de pantalla completa" : "Ir a pantalla completa"}
+              >
+                {isFullScreen ? <Minimize2 size={12} className="text-purple-400" /> : <Maximize2 size={12} className="text-purple-400" />}
+                <span className="text-[8px] font-bold uppercase tracking-widest hidden sm:inline">
+                  {isFullScreen ? "Salir" : "Max"}
+                </span>
+              </button>
+            </div>
+          )}
         </div>
 
         {/* 3. Panel Lateral: VR Integrator Settings */}
-        {showSidebar && (
+        {!isViewOnly && showSidebar && (
           <div className={`border-t lg:border-t-0 lg:border-l border-white/5 bg-neutral-900/70 p-4 space-y-5 flex flex-col justify-between overflow-y-auto transition-all ${
             isFullScreen ? 'lg:w-[380px] shrink-0' : 'lg:col-span-1'
           }`}>
@@ -1861,7 +2290,7 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
 
             {activeTab === 'view' ? (
               <div className="space-y-4 pt-2">
-                <div className="p-3 bg-neon-blue/5 border border-neon-blue/20 rounded-xl space-y-2">
+                {/* <div className="p-3 bg-neon-blue/5 border border-neon-blue/20 rounded-xl space-y-2">
                   <h5 className="text-[10px] font-bold text-neon-blue uppercase tracking-widest font-orbitron">Procesamiento Equirrectangular</h5>
                   <p className="text-[9px] text-white/60 leading-relaxed uppercase">
                     Esta imagen se despliega en una esfera de proyección de 360 grados de manera continua (seamless-wrap). Puedes utilizar la navegación giroscópica y cursor para rotar la cámara nativamente.
@@ -1880,7 +2309,7 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
                       <span className="text-[7px] text-white/40 uppercase tracking-widest">Cohesión Lateral</span>
                     </div>
                   </div>
-                </div>
+                </div> */ }
 
                 {elementImageUrl && (
                   <div className="border border-white/10 rounded-xl p-3 bg-black/20 space-y-2">
@@ -1908,7 +2337,7 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
                     <button
                       type="button"
                       onClick={handleExportGLB}
-                      disabled={isExporting}
+                      disabled={isExporting || isSharing}
                       className="w-full py-2 px-3 bg-gradient-to-r from-purple-600 to-neon-blue text-white text-[9.5px] font-bold uppercase rounded-lg hover:shadow-[0_0_15px_rgba(168,85,247,0.4)] transition-all flex items-center justify-center gap-2 border border-purple-400/20 disabled:opacity-50 cursor-pointer"
                     >
                       {isExporting ? (
@@ -1924,8 +2353,84 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
                       )}
                     </button>
 
-                    {isExporting && exportProgress && (
-                      <p className="text-[7.5px] text-purple-400 text-center animate-pulse uppercase tracking-wider font-mono">
+                    {/* Compartir URL de VR */}
+                    {!shareUrl ? (
+                      <button
+                        type="button"
+                        onClick={handleShare}
+                        disabled={isSharing || isExporting}
+                        className="w-full py-2 px-3 bg-white/5 hover:bg-white/10 text-white text-[9.5px] font-bold uppercase rounded-lg hover:shadow-[0_0_15px_rgba(255,255,255,0.1)] transition-all flex items-center justify-center gap-2 border border-white/10 disabled:opacity-50 cursor-pointer"
+                      >
+                        {isSharing ? (
+                          <>
+                            <div className="w-3.5 h-3.5 border border-white/20 border-t-white rounded-full animate-spin" />
+                            <span>Generando Enlace...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Share2 size={12} />
+                            <span>Generar Compartir Navegador VR</span>
+                          </>
+                        )}
+                      </button>
+                    ) : (
+                      <div className="bg-black/50 border border-green-500/30 rounded-lg p-2.5 mt-2 flex flex-col gap-2 relative">
+                        <div className="flex items-center justify-between text-green-400 text-[9px] font-bold uppercase tracking-wider mb-1">
+                          <span className="flex items-center gap-1.5"><Check size={10} /> Enlace Listo</span>
+                          <button 
+                            title="Descartar enlace" 
+                            onClick={() => setShareUrl(null)} 
+                            className="bg-red-500/20 text-red-400 hover:bg-red-500/40 rounded-full p-0.5 absolute right-2 top-2"
+                          >
+                            <X size={10} />
+                          </button>
+                        </div>
+                        <input 
+                          type="text" 
+                          readOnly 
+                          value={shareUrl} 
+                          className="bg-black border border-white/10 w-full rounded p-1.5 text-[8.5px] text-white/70 font-mono focus:outline-none focus:border-green-400" 
+                        />
+                        <div className="flex gap-2">
+                          <button 
+                            className="flex-1 py-1.5 bg-green-500/20 text-green-400 hover:bg-green-500/30 rounded flex items-center justify-center gap-1.5 text-[8px] uppercase font-bold transition-all border border-green-500/20"
+                            onClick={() => {
+                              try {
+                                if (navigator.clipboard && window.isSecureContext) {
+                                  navigator.clipboard.writeText(shareUrl);
+                                } else {
+                                  const textArea = document.createElement("textarea");
+                                  textArea.value = shareUrl;
+                                  textArea.style.position = "fixed";
+                                  document.body.appendChild(textArea);
+                                  textArea.focus();
+                                  textArea.select();
+                                  document.execCommand('copy');
+                                  document.body.removeChild(textArea);
+                                }
+                                alert('Enlace copiado al portapapeles');
+                              } catch (err) {
+                                console.error('Failed to copy', err);
+                                alert('Selecciona y copia manualmente el enlace.');
+                              }
+                            }}
+                          >
+                            <Link size={10} /> Copiar URL
+                          </button>
+                          <a 
+                            href={shareUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex-1 py-1.5 bg-neon-blue/20 text-neon-blue hover:bg-neon-blue/30 rounded flex items-center justify-center gap-1.5 text-[8px] uppercase font-bold transition-all border border-neon-blue/20"
+                          >
+                            <Globe size={10} /> Visitar
+                          </a>
+                        </div>
+                      </div>
+                    )}
+
+                    {(isExporting || isSharing) && exportProgress && (
+                      <p className="text-[7.5px] text-emerald-400 text-center animate-pulse uppercase tracking-wider font-mono">
                         {exportProgress}
                       </p>
                     )}
@@ -2000,13 +2505,14 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
                               <button
                                 type="button"
                                 onClick={() => setExportResolution('max')}
-                                className={`px-1.5 py-0.5 rounded text-[7.5px] font-bold uppercase transition-all ${
+                                className={`px-1.5 py-0.5 rounded text-[7.5px] font-bold uppercase transition-all flex flex-col items-center ${
                                   exportResolution === 'max'
                                     ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30 font-black'
                                     : 'bg-white/5 text-white/40 hover:text-white border border-transparent'
                                 }`}
                               >
-                                4K Máx (4096x2048)
+                                <span>4K Máx (4096x2048)</span>
+                                <span className="text-[6px] text-emerald-400 opacity-80 mt-0.5">VR META/FB (100% SEGURO)</span>
                               </button>
                               <button
                                 type="button"
@@ -2098,7 +2604,7 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
               <div className="space-y-4 pt-2">
                 <div className="space-y-2">
                   <label className="text-[8px] text-white/30 uppercase tracking-widest font-bold">Tipo de Integración 3D</label>
-                  <div className="grid grid-cols-4 gap-1">
+                  <div className="grid grid-cols-2 gap-1">
                     <button
                       type="button"
                       onClick={() => setInsertType('none')}
@@ -2108,7 +2614,7 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
                     >
                       Ninguno
                     </button>
-                    <button
+                    {/* <button
                       type="button"
                       onClick={() => setInsertType('text')}
                       className={`py-1.5 rounded-lg text-[8px] uppercase font-bold border transition-all flex items-center justify-center gap-0.5 ${
@@ -2116,7 +2622,7 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
                       }`}
                     >
                       <Type size={9} /> Letrero
-                    </button>
+                    </button> */ }
                     <button
                       type="button"
                       onClick={() => {
@@ -2134,7 +2640,7 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
                     >
                       <ImageIcon size={9} /> Prod.
                     </button>
-                    <button
+                    {/* <button
                       type="button"
                       onClick={() => setInsertType('3d_model')}
                       className={`py-1.5 rounded-lg text-[8px] uppercase font-bold border transition-all flex items-center justify-center gap-0.5 ${
@@ -2142,11 +2648,11 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
                       }`}
                     >
                       <Box size={9} /> 3D
-                    </button>
+                    </button> */ }
                   </div>
                 </div>
 
-                {insertType === 'text' && (
+                {/* {insertType === 'text' && (
                   <div className="space-y-2 border border-white/5 rounded-xl p-3 bg-white/5">
                     <div>
                       <label className="text-[8px] text-white/40 uppercase tracking-widest font-bold block mb-1">Texto Holográfico 3D</label>
@@ -2186,11 +2692,11 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
                       </div>
                     </div>
                   </div>
-                )}
+                )} */}
 
-                {insertType === '3d_model' && (
+                {/* {insertType === '3d_model' && (
                   <div className="space-y-3 border border-white/5 rounded-xl p-3 bg-white/5">
-                    {/* Modeled Product Custom Selection/Uploader instead of general shapes */}
+                    {/* Modeled Product Custom Selection/Uploader instead of general shapes * /}
                     <div>
                       <label className="text-[8px] text-neon-blue uppercase tracking-widest font-black block mb-2">Modelo de Producto 3D (.glb / Textura)</label>
                       
@@ -2248,7 +2754,7 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
                       )}
                     </div>
 
-                    {/* Giro and rotation Speed (Made full-width since styling options are hidden) */}
+                    {/* Giro and rotation Speed (Made full-width since styling options are hidden) * /}
                     <div>
                       <div className="flex justify-between text-[8px] text-white/40 uppercase tracking-widest font-bold mb-1">
                         <span>Giro de Producto (Rotación):</span>
@@ -2265,7 +2771,7 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
                       />
                     </div>
 
-                    {/* Sección Integradora de Parámetros Físicos VR */}
+                    {/* Sección Integradora de Parámetros Físicos VR * /}
                     <div className="border border-neon-blue/20 bg-neon-blue/5 rounded-lg p-3 space-y-3 mt-1 text-left animate-fade-in">
                       <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
                         <span className="text-[8.5px] font-black text-white uppercase tracking-wider flex items-center gap-1">
@@ -2284,7 +2790,7 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
 
                       {physicsEnabled && (
                         <div className="space-y-3.5 animate-slide-up">
-                          {/* Rebote / Elasticidad */}
+                          {/* Rebote / Elasticidad * /}
                           <div className="space-y-1">
                             <div className="flex justify-between text-[7.5px] font-bold text-white/60 uppercase">
                               <span>Coeficiente de Colisión (Bote):</span>
@@ -2301,7 +2807,7 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
                             />
                           </div>
 
-                          {/* Fricción */}
+                          {/* Fricción * /}
                           <div className="space-y-1">
                             <div className="flex justify-between text-[7.5px] font-bold text-white/60 uppercase">
                               <span>Fricción de Superficies (Deslizamiento):</span>
@@ -2318,7 +2824,7 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
                             />
                           </div>
 
-                          {/* Gravedad */}
+                          {/* Gravedad * /}
                           <div className="space-y-1">
                             <div className="flex justify-between text-[7.5px] font-bold text-white/60 uppercase">
                               <span>Gravedad del Entorno:</span>
@@ -2335,7 +2841,7 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
                             />
                           </div>
 
-                          {/* Dynamic forces actions */}
+                          {/* Dynamic forces actions * /}
                           <div className="pt-1 flex justify-center">
                             <button
                               type="button"
@@ -2352,7 +2858,7 @@ export const VR360Viewer: React.FC<VR360ViewerProps> = ({
                       )}
                     </div>
                   </div>
-                )}
+                )} */}
 
                 {insertType === 'image' && !elementImageUrl && (
                   <p className="text-[8px] text-red-400 uppercase tracking-widest font-bold">¡Subre primero una referencia en Product Studio para insertarla en VR!</p>

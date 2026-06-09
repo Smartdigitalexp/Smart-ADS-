@@ -277,26 +277,31 @@ export async function analyzeAndGenerate(
           }
         } else {
           const is360 = campaign.aspectRatio.includes("2:1");
-          const imageResponse = await ai.models.generateContent({
+          
+          const inputElements: any[] = [];
+          inputElements.push({
+            type: "text",
+            text: is360 ? `360 degree equirectangular projection, VR 360 photosphere panorama: ${variant.visualPrompt}` : variant.visualPrompt
+          });
+          
+          if (visualBase64 && visualMimeType) {
+            inputElements.push({
+              type: "image",
+              data: visualBase64,
+              mime_type: visualMimeType
+            });
+          }
+
+          const interaction = await ai.interactions.create({
             model: "gemini-2.5-flash-image",
-            contents: [
-              {
-                parts: [
-                  { text: is360 ? `360 degree equirectangular projection, VR 360 photosphere panorama: ${variant.visualPrompt}` : variant.visualPrompt },
-                  ...(visualBase64 && visualMimeType ? [{
-                    inlineData: {
-                      data: visualBase64,
-                      mimeType: visualMimeType
-                    }
-                  }] : [])
-                ]
+            input: inputElements,
+            response_modalities: ['image', 'text'],
+            generation_config: {
+              image_config: {
+                aspect_ratio: campaign.aspectRatio === "9:16" ? "9:16" : campaign.aspectRatio === "16:9" ? "16:9" : is360 ? "16:9" : "1:1"
               }
-            ],
-            config: {
-              imageConfig: {
-                aspectRatio: campaign.aspectRatio === "9:16" ? "9:16" : campaign.aspectRatio === "16:9" ? "16:9" : is360 ? "16:9" : "1:1"
-              },
-              systemInstruction: is360
+            } as any,
+            system_instruction: is360
                 ? `Genera una imagen panorámica de realidad virtual de 360 grados en proyección equirrectangular pura de ultra alta calidad.
                 REGLAS CRÍTICAS PARA 360° PANORAMA:
                 1. FORMATO EQUIRRECTANGULAR: La imagen debe ser una proyección photosphere/panorámica completa de 360 grados de ancho por 180 grados de alto.
@@ -307,12 +312,16 @@ export async function analyzeAndGenerate(
                 1. ENCUADRE TOTAL: El contenido debe llenar el 100% del área (${campaign.aspectRatio}). Full-bleed obligatorio.
                 2. PERSONIFICACIÓN ACTIVA: El personaje de la audiencia debe estar EJECUTANDO una acción propia de su contexto (ej: operando, diseñando, cocinando).
                 3. TRIDIMENSIONALIDAD: El producto debe tener peso, sombras de contacto y profundidad 3D real integrada en el entorno.`
-            } as any
           });
 
-          const imagePart = imageResponse.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-          if (imagePart?.inlineData) {
-            imageUrl = `data:image/png;base64,${imagePart.inlineData.data}`;
+          for (const step of interaction.steps) {
+            if (step.type === 'model_output') {
+              const imageContent = step.content?.find(c => c.type === 'image');
+              if (imageContent && imageContent.data) {
+                imageUrl = `data:${imageContent.mime_type || 'image/png'};base64,${imageContent.data}`;
+                break;
+              }
+            }
           }
         }
       } catch (e) {
@@ -383,28 +392,34 @@ export async function optimizeProductReference(
   const technicalPrompt = analysisResponse.text?.trim() || `Professional studio product shot of ${productName} on pure white background, ultra-high resolution, 8k, sharp focus, maintaining original product features and labels perfectly.`;
 
   // 2. Execute High-Resolution Generation (Upscaling & Background Removal effect)
-  const imageResponse = await ai.models.generateContent({
+  const interaction = await ai.interactions.create({
     model: "gemini-2.5-flash-image",
-    contents: [{ 
-      parts: [
-        { text: technicalPrompt },
-        { 
-          inlineData: {
-            data: visualBase64,
-            mimeType: visualMimeType
-          }
-        }
-      ] 
-    }],
-    config: {
-      imageConfig: {
-        aspectRatio: "1:1"
+    input: [
+      { text: technicalPrompt },
+      { 
+        type: "image",
+        data: visualBase64,
+        mime_type: visualMimeType
+      }
+    ],
+    response_modalities: ['image', 'text'],
+    generation_config: {
+      image_config: {
+        aspect_ratio: "1:1"
       }
     } as any
   });
 
-  const imagePart = imageResponse.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-  return imagePart?.inlineData ? `data:image/png;base64,${imagePart.inlineData.data}` : "";
+  for (const step of interaction.steps) {
+    if (step.type === 'model_output') {
+      const imageContent = step.content?.find(c => c.type === 'image');
+      if (imageContent && imageContent.data) {
+        return `data:${imageContent.mime_type || 'image/png'};base64,${imageContent.data}`;
+      }
+    }
+  }
+
+  return "";
 }
 
 export async function generateStorytellingPrompt(
@@ -540,55 +555,73 @@ export async function generateImageFromPrompt(
   elementMimeType?: string
 ): Promise<string> {
   const is360 = aspectRatio.includes("2:1");
-  const contents = [
-    {
-      parts: [
-        { text: is360 ? `360 degree equirectangular projection, VR 360 photosphere panorama: ${prompt}` : prompt },
-        ...(visualBase64 && visualMimeType ? [{
-          inlineData: {
-            data: visualBase64,
-            mimeType: visualMimeType
-          }
-        }] : []),
-        ...(elementBase64 && elementMimeType ? [{
-          inlineData: {
-            data: elementBase64,
-            mimeType: elementMimeType
-          }
-        }] : [])
-      ]
-    }
-  ];
+  const modelName = is360 ? "gemini-3.1-flash-image" : "gemini-2.5-flash-image";
+  const mappedAspectRatio = aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : is360 ? "16:9" : "1:1";
+  
+  const inputElements: any[] = [];
+  
+  if (visualBase64 && visualMimeType) {
+    inputElements.push({
+      type: "image",
+      data: visualBase64,
+      mime_type: visualMimeType
+    });
+  }
+  
+  if (elementBase64 && elementMimeType) {
+    inputElements.push({
+      type: "image",
+      data: elementBase64,
+      mime_type: elementMimeType
+    });
+  }
+  
+  const textPrompt = is360 ? `360 degree equirectangular projection, VR 360 photosphere panorama: ${prompt}` : prompt;
+  inputElements.push({
+    type: "text",
+    text: textPrompt
+  });
 
-  const response = await ai.models.generateContent({
-    model: is360 ? "gemini-3.1-flash-image-preview" : "gemini-2.5-flash-image",
-    contents: contents,
-    config: {
-      imageConfig: {
-        aspectRatio: aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : is360 ? "16:9" : "1:1",
-        ...(is360 ? { imageSize: "4K" } : { imageSize: "1K" })
-      },
-      systemInstruction: is360
-        ? `Genera una imagen panorámica de realidad virtual de 360 grados en proyección equirrectangular pura de CALIDAD ULTRA DE ALTA DEFINICIÓN 8K (7680x3840) para Meta Ads inmersivos.
-        REGLAS CRÍTICAS DE ENCUADRE Y CALIDAD DE ALTA DEFINICIÓN PARA PANORAMAS:
-        1. RELACIÓN EQUIRRECTANGULAR PERFECTA: La imagen debe diseñarse en una relación de aspecto que represente la esfera completa de manera fluida (360° horizontal x 180° vertical).
-        2. ACOPLAMIENTO DE EXTREMOS 100% INVISIBLE: El extremo de la extrema izquierda (x=0) y el extremo de la extrema derecha (x=ancho) deben coincidir milimétricamente en iluminación, texturas, colores y líneas de guía espacial para crear una costura totalmente seamless libre de cortes o parpadeos durante el giro.
-        3. Horizonte perfectamente recto, centrado verticalmente y equilibrado. Evita cualquier distorsión aberrante en el centro de visión.
-        4. Fidelidad tridimensional suprema de súper alta resolución 8K, texturas nítidas hiper-glorificadas, microdetalles ultra-definidos de alta frecuencia y sin grano ni pixelado para una inmersión VR absoluta de grado premium.`
-        : `Genera una imagen publicitaria premium. 
-        REGLA DE ORO (ENCUADRE): La imagen debe ser FULL-BLEED, llenando el 100% de la relación (${aspectRatio}).
-        REGLA DE PERSONIFICACIÓN ACTIVA: Incluye a la audiencia objetivo REALIZANDO una acción física y real propia de su contexto profesional o de estilo de vida, integrada orgánicamente con el producto.
-        
-        REGLA DE COMPOSICIÓN (SI SE ENVIARON DOS REFERENCIAS):
-        Si se han proporcionado dos imágenes de referencia:
-        - La primera imagen representa la escena base o de fondo (la imagen principal a la que se le añade algo).
-        - La segunda imagen representa un elemento visual específico, objeto, logo o producto que se debe integrar con total realismo bidimensional/tridimensional en la primera imagen.
-        - Utiliza las instrucciones del prompt para fusionar ambos de forma cohesiva respetando sombras, iluminación y reflejos.`
+  const systemInstruction = is360
+  ? `Genera una imagen panorámica de realidad virtual de 360 grados en proyección equirrectangular pura de CALIDAD ULTRA DE ALTA DEFINICIÓN 8K (7680x3840) para Meta Ads inmersivos.
+  REGLAS CRÍTICAS DE ENCUADRE Y CALIDAD DE ALTA DEFINICIÓN PARA PANORAMAS:
+  1. RELACIÓN EQUIRRECTANGULAR PERFECTA: La imagen debe diseñarse en una relación de aspecto que represente la esfera completa de manera fluida (360° horizontal x 180° vertical).
+  2. ACOPLAMIENTO DE EXTREMOS 100% INVISIBLE: El extremo de la extrema izquierda (x=0) y el extremo de la extrema derecha (x=ancho) deben coincidir milimétricamente en iluminación, texturas, colores y líneas de guía espacial para crear una costura totalmente seamless libre de cortes o parpadeos durante el giro.
+  3. Horizonte perfectamente recto, centrado verticalmente y equilibrado. Evita cualquier distorsión aberrante en el centro de visión.
+  4. Fidelidad tridimensional suprema de súper alta resolución 8K, texturas nítidas hiper-glorificadas, microdetalles ultra-definidos de alta frecuencia y sin grano ni pixelado para una inmersión VR absoluta de grado premium.`
+  : `Genera una imagen publicitaria premium. 
+  REGLA DE ORO (ENCUADRE): La imagen debe ser FULL-BLEED, llenando el 100% de la relación (${aspectRatio}).
+  REGLA DE PERSONIFICACIÓN ACTIVA: Incluye a la audiencia objetivo REALIZANDO una acción física y real propia de su contexto profesional o de estilo de vida, integrada orgánicamente con el producto.
+  
+  REGLA DE COMPOSICIÓN (SI SE ENVIARON DOS REFERENCIAS):
+  Si se han proporcionado dos imágenes de referencia:
+  - La primera imagen representa la escena base o de fondo (la imagen principal a la que se le añade algo).
+  - La segunda imagen representa un elemento visual específico, objeto, logo o producto que se debe integrar con total realismo bidimensional/tridimensional en la primera imagen.
+  - Utiliza las instrucciones del prompt para fusionar ambos de forma cohesiva respetando sombras, iluminación y reflejos.`;
+
+  const interaction = await ai.interactions.create({
+    model: modelName,
+    input: inputElements,
+    system_instruction: systemInstruction,
+    response_modalities: ['image', 'text'],
+    generation_config: {
+      image_config: {
+        aspect_ratio: mappedAspectRatio,
+        ...(is360 ? { image_size: "4K" } : { image_size: "1K" })
+      }
     } as any
   });
 
-  const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-  return part?.inlineData ? `data:image/png;base64,${part.inlineData.data}` : "";
+  for (const step of interaction.steps) {
+    if (step.type === 'model_output') {
+      const imageContent = step.content?.find(c => c.type === 'image');
+      if (imageContent && imageContent.data) {
+        return `data:${imageContent.mime_type || 'image/png'};base64,${imageContent.data}`;
+      }
+    }
+  }
+
+  return "";
 }
 
 export async function generateCreativeConcept(

@@ -54,7 +54,8 @@ import {
   Megaphone,
   Plus,
   PlusCircle,
-  Box
+  Box,
+  Bell
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
@@ -107,7 +108,10 @@ import {
   deleteDoc,
   doc,
   getDoc,
-  setDoc
+  setDoc,
+  setupMessaging,
+  getToken,
+  onMessage
 } from './lib/firebase';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 
@@ -216,6 +220,52 @@ export default function App() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isInstallable, setIsInstallable] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(
+    typeof window !== 'undefined' && 'Notification' in window 
+      ? Notification.permission === 'granted' 
+      : false
+  );
+  
+  const setupNotifications = async () => {
+    if (!('Notification' in window)) {
+      alert('Tu navegador no soporta notificaciones push.');
+      return;
+    }
+    
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        setNotificationsEnabled(true);
+        const messaging = await setupMessaging();
+        if (messaging) {
+          // Si tienes una vapidKey, la pasas aquí.
+          // const token = await getToken(messaging, { vapidKey: 'TU_VAPID_KEY' });
+          const token = await getToken(messaging);
+          console.log('FCM Token:', token);
+          
+          if (currentUser) {
+            // Guardar token en subcolección de usuario o en colección root
+            await addDoc(collection(db, 'fcm_tokens'), {
+              token: token,
+              userId: currentUser.uid,
+              userEmail: currentUser.email,
+              platform: navigator.platform,
+              timestamp: serverTimestamp()
+            });
+            setChatNotification('Notificaciones push activadas correctamente.');
+          } else {
+            setChatNotification('Debe iniciar sesión para asociar las notificaciones.');
+          }
+        }
+      } else {
+        setChatNotification('Permiso para notificaciones denegado.');
+        setNotificationsEnabled(false);
+      }
+    } catch (e) {
+      console.error('Error setting up notifications', e);
+      setChatNotification('Error al configurar notificaciones.');
+    }
+  };
 
   useEffect(() => {
     // Check if app is already installed
@@ -228,11 +278,36 @@ export default function App() {
       setDeferredPrompt(e);
       setIsInstallable(true);
     };
+    
+    const handleAppInstalled = async () => {
+      setIsInstalled(true);
+      setIsInstallable(false);
+      try {
+        await addDoc(collection(db, 'app_installs'), {
+          timestamp: serverTimestamp(),
+          userAgent: navigator.userAgent,
+          platform: navigator.platform
+        });
+        console.log('Installation tracked successfully');
+        
+        // Custom GA4 Event via GTM
+        if (typeof window !== 'undefined' && 'dataLayer' in window) {
+          (window as any).dataLayer.push({
+            event: 'Dowloads',
+            app_platform: navigator.platform
+          });
+        }
+      } catch (e) {
+        console.error('Error tracking installation', e);
+      }
+    };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
     };
   }, []);
 
@@ -5016,6 +5091,16 @@ export default function App() {
           >
             <Download className="w-3 h-3" />
             INSTALAR APP
+          </button>
+        )}
+        
+        {isInstalled && !notificationsEnabled && (
+          <button 
+            onClick={setupNotifications}
+            className="px-4 py-1.5 bg-neon-green/20 text-neon-green border border-neon-green/50 rounded-lg hover:bg-neon-green/30 hover:shadow-[0_0_15px_rgba(0,255,128,0.4)] transition-all flex items-center gap-2"
+          >
+            <Bell className="w-3 h-3" />
+            ACTIVAR NOTIFICACIONES
           </button>
         )}
         

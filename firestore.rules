@@ -31,5 +31,11 @@ service cloud.firestore {
     match /vr_shares/{shareId}/chunks/{chunkId} {
       allow read, write: if true;
     }
+    match /app_installs/{installId} {
+      allow create: if true;
+    }
+    match /fcm_tokens/{tokenId} {
+      allow read, write: if request.auth != null;
+    }
   }
 }

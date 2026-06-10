@@ -14,17 +14,17 @@ export default defineConfig(({mode}) => {
         registerType: 'autoUpdate',
         includeAssets: ['favicon.svg', 'robots.txt', 'sitemap.xml'],
         manifest: {
-          name: 'Smart VR 360 Ads',
-          short_name: 'SmartVR',
-          description: 'Crea anuncios en formato VR 360 y fotósferas',
+          name: 'Smart ADS',
+          short_name: 'Smart ADS',
+          description: 'Anuncios Inteligentes y Estrategia de Medios con IA',
           theme_color: '#13151a',
           background_color: '#13151a',
           display: 'standalone',
           icons: [
             {
-              src: 'favicon.svg',
+              src: 'logo.png',
               sizes: '192x192 512x512',
-              type: 'image/svg+xml',
+              type: 'image/png',
               purpose: 'any maskable'
             }
           ]

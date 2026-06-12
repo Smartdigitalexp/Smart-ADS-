@@ -54,8 +54,7 @@ import {
   Megaphone,
   Plus,
   PlusCircle,
-  Box,
-  Bell
+  Box
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
@@ -108,10 +107,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
-  setDoc,
-  setupMessaging,
-  getToken,
-  onMessage
+  setDoc
 } from './lib/firebase';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 
@@ -220,52 +216,6 @@ export default function App() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isInstallable, setIsInstallable] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
-  const [notificationsEnabled, setNotificationsEnabled] = useState(
-    typeof window !== 'undefined' && 'Notification' in window 
-      ? Notification.permission === 'granted' 
-      : false
-  );
-  
-  const setupNotifications = async () => {
-    if (!('Notification' in window)) {
-      alert('Tu navegador no soporta notificaciones push.');
-      return;
-    }
-    
-    try {
-      const permission = await Notification.requestPermission();
-      if (permission === 'granted') {
-        setNotificationsEnabled(true);
-        const messaging = await setupMessaging();
-        if (messaging) {
-          // Si tienes una vapidKey, la pasas aquí.
-          // const token = await getToken(messaging, { vapidKey: 'TU_VAPID_KEY' });
-          const token = await getToken(messaging);
-          console.log('FCM Token:', token);
-          
-          if (currentUser) {
-            // Guardar token en subcolección de usuario o en colección root
-            await addDoc(collection(db, 'fcm_tokens'), {
-              token: token,
-              userId: currentUser.uid,
-              userEmail: currentUser.email,
-              platform: navigator.platform,
-              timestamp: serverTimestamp()
-            });
-            setChatNotification('Notificaciones push activadas correctamente.');
-          } else {
-            setChatNotification('Debe iniciar sesión para asociar las notificaciones.');
-          }
-        }
-      } else {
-        setChatNotification('Permiso para notificaciones denegado.');
-        setNotificationsEnabled(false);
-      }
-    } catch (e) {
-      console.error('Error setting up notifications', e);
-      setChatNotification('Error al configurar notificaciones.');
-    }
-  };
 
   useEffect(() => {
     // Check if app is already installed
@@ -278,36 +228,11 @@ export default function App() {
       setDeferredPrompt(e);
       setIsInstallable(true);
     };
-    
-    const handleAppInstalled = async () => {
-      setIsInstalled(true);
-      setIsInstallable(false);
-      try {
-        await addDoc(collection(db, 'app_installs'), {
-          timestamp: serverTimestamp(),
-          userAgent: navigator.userAgent,
-          platform: navigator.platform
-        });
-        console.log('Installation tracked successfully');
-        
-        // Custom GA4 Event via GTM
-        if (typeof window !== 'undefined' && 'dataLayer' in window) {
-          (window as any).dataLayer.push({
-            event: 'Dowloads',
-            app_platform: navigator.platform
-          });
-        }
-      } catch (e) {
-        console.error('Error tracking installation', e);
-      }
-    };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    window.addEventListener('appinstalled', handleAppInstalled);
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      window.removeEventListener('appinstalled', handleAppInstalled);
     };
   }, []);
 
@@ -617,25 +542,8 @@ export default function App() {
         setLoginEmail(user.email || '');
         localStorage.setItem('smart_ads_logged_in', 'true');
         fetchHistory(user.email || '');
+        // Initialize and fetch user profile
         fetchUserProfile(user.uid, user);
-        
-        // Initialize credits from server (gives 60 to new users)
-        try {
-          const res = await fetch('/api/user/initialize', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId: user.uid, email: user.email })
-          });
-          const data = await res.json();
-          if (data.credits !== undefined) {
-            setCredits(data.credits);
-            if (data.isNew) {
-              setChatNotification('¡Bienvenido! Te hemos obsequiado 60 créditos iniciales.');
-            }
-          }
-        } catch (err) {
-          console.error("Error initializing user credits:", err);
-        }
       } else {
         setCurrentUser(null);
       }
@@ -746,7 +654,7 @@ export default function App() {
       
       // Detailed error handling for custom domain issues
       if (error.code === 'auth/unauthorized-domain') {
-        setChatNotification('⚠️ ERROR DE DOMINIO: Este dominio no está autorizado en Firebase. Por favor, agrega "smartads.com.co" en "Dominios autorizados" en la Consola de Firebase (Autenticación > Ajustes).');
+        setChatNotification(`⚠️ ERROR DE DOMINIO: Este dominio no está autorizado en Firebase. Por favor, agrega "${window.location.hostname}" en "Dominios autorizados" en la Consola de Firebase (Authentication > Settings > Authorized domains).`);
         return;
       }
 
@@ -771,20 +679,35 @@ export default function App() {
 
   const fetchUserProfile = async (userId: string, firebaseUser: FirebaseUser) => {
     try {
-      const userDoc = await getDoc(doc(db, 'users', userId));
+      const userRef = doc(db, 'users', userId);
+      const userDoc = await getDoc(userRef);
       if (userDoc.exists()) {
-        const data = userDoc.data() as UserProfile;
+        const data = userDoc.data() as UserProfile & { credits?: number };
         
-        // Force unlimited for user
+        let fetchedCredits = data.credits ?? 0;
         if (firebaseUser.email === 'smartdigitalexperience@gmail.com') {
-          setCredits(-1);
+          fetchedCredits = -1;
         }
+        setCredits(fetchedCredits);
 
         setUserProfile({
           ...data,
           multiVariantEnabled: data.multiVariantEnabled !== undefined ? data.multiVariantEnabled : true
         });
       } else {
+        const initialCredits = firebaseUser.email === 'smartdigitalexperience@gmail.com' ? -1 : 60;
+        await setDoc(userRef, {
+          email: firebaseUser.email || '',
+          displayName: firebaseUser.displayName || '',
+          credits: initialCredits,
+          createdAt: serverTimestamp(),
+          multiVariantEnabled: true
+        });
+        setCredits(initialCredits);
+        if (initialCredits !== -1) {
+          setChatNotification('¡Bienvenido! Te hemos obsequiado 60 créditos iniciales.');
+        }
+
         // Default values from Google Auth if doc doesn't exist
         setUserProfile({
           displayName: firebaseUser.displayName || '',
@@ -796,6 +719,28 @@ export default function App() {
       }
     } catch (error) {
       console.error("Error fetching profile:", error);
+    }
+  };
+
+  const deductCreditsLocal = async (amount: number): Promise<{ success: boolean, remaining?: number, error?: string }> => {
+    if (!currentUser) return { success: false, error: "No user logged in" };
+    if (credits === -1) return { success: true, remaining: -1 };
+    
+    try {
+      const { updateDoc, increment } = await import('firebase/firestore');
+      const newCredits = credits - amount;
+      if (newCredits < 0) {
+        return { success: false, error: "Saldo insuficiente." };
+      }
+      
+      const userRef = doc(db, 'users', currentUser.uid);
+      await updateDoc(userRef, {
+        credits: newCredits
+      });
+      return { success: true, remaining: newCredits };
+    } catch (err: any) {
+      console.error("Local deduct error:", err);
+      return { success: false, error: err.message };
     }
   };
 
@@ -974,14 +919,9 @@ export default function App() {
         // Deduct credits after success
         if (credits !== -1 && currentUser) {
           try {
-            const deductRes = await fetch('/api/user/credits/deduct', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ userId: currentUser.uid, amount: 150 })
-            });
-            const deductData = await deductRes.json();
-            if (deductRes.ok) {
-              setCredits(deductData.remaining);
+            const deductRes = await deductCreditsLocal(150);
+            if (deductRes.success && deductRes.remaining !== undefined) {
+              setCredits(deductRes.remaining);
             }
           } catch (e) {
             console.error("Credit deduction error on publish:", e);
@@ -1150,14 +1090,9 @@ export default function App() {
         // Deduct credits
         if (credits !== -1 && currentUser) {
           try {
-            const deductRes = await fetch('/api/user/credits/deduct', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ userId: currentUser.uid, amount: 150 })
-            });
-            const deductData = await deductRes.json();
-            if (deductRes.ok) {
-              setCredits(deductData.remaining);
+            const deductRes = await deductCreditsLocal(150);
+            if (deductRes.success && deductRes.remaining !== undefined) {
+              setCredits(deductRes.remaining);
             }
           } catch (e) {
             console.error("Credit deduction error:", e);
@@ -1432,16 +1367,11 @@ export default function App() {
       // Deduct credits
       if (credits !== -1 && currentUser) {
         try {
-          const res = await fetch('/api/user/credits/deduct', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId: currentUser.uid, amount: 150 })
-          });
-          const data = await res.json();
-          if (res.ok) {
-            setCredits(data.remaining);
+          const res = await deductCreditsLocal(150);
+          if (res.success && res.remaining !== undefined) {
+            setCredits(res.remaining);
           } else {
-            setChatNotification('Error en créditos: ' + (data.error || 'Saldo insuficiente.'));
+            setChatNotification('Error en créditos: ' + (res.error || 'Saldo insuficiente.'));
             setShowRecharge(true);
             setIsAnalyzing(false);
             return;
@@ -1482,16 +1412,11 @@ export default function App() {
       // Deduct credits
       if (credits !== -1 && currentUser) {
         try {
-          const res = await fetch('/api/user/credits/deduct', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId: currentUser.uid, amount: 150 })
-          });
-          const data = await res.json();
-          if (res.ok) {
-            setCredits(data.remaining);
+          const res = await deductCreditsLocal(150);
+          if (res.success && res.remaining !== undefined) {
+            setCredits(res.remaining);
           } else {
-            setChatNotification('Error en créditos: ' + (data.error || 'Saldo insuficiente.'));
+            setChatNotification('Error en créditos: ' + (res.error || 'Saldo insuficiente.'));
             setShowRecharge(true);
             setIsPlanning(false);
             return;
@@ -1886,13 +1811,10 @@ export default function App() {
     // Deduct credits
     if (credits !== -1 && currentUser) {
       try {
-        const res = await fetch('/api/user/credits/deduct', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: currentUser.uid, amount: 30 })
-        });
-        const data = await res.json();
-        setCredits(data.remaining);
+        const res = await deductCreditsLocal(30);
+        if (res.success && res.remaining !== undefined) {
+          setCredits(res.remaining);
+        }
       } catch (e) {
         console.error("Credit deduction error:", e);
       }
@@ -1993,22 +1915,18 @@ export default function App() {
           cost = is360 ? 100 : 50;
         }
 
-        const deductRes = await fetch('/api/user/credits/deduct', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: currentUser.uid, amount: cost })
-        });
+        const deductRes = await deductCreditsLocal(cost);
 
-        if (!deductRes.ok) {
-          const errData = await deductRes.json();
-          setChatNotification('Error en créditos: ' + (errData.error || 'Saldo insuficiente.'));
+        if (!deductRes.success) {
+          setChatNotification('Error en créditos: ' + (deductRes.error || 'Saldo insuficiente.'));
           setShowRecharge(true);
           setIsProcessing(false);
           return;
         }
-
-        const deductData = await deductRes.json();
-        setCredits(deductData.remaining);
+        
+        if (deductRes.remaining !== undefined) {
+          setCredits(deductRes.remaining);
+        }
       }
       let visualBase64 = '';
       let visualMimeType = '';
@@ -3525,14 +3443,9 @@ export default function App() {
                               }
                               if (credits !== -1 && currentUser) {
                                 try {
-                                  const deductRes = await fetch('/api/user/credits/deduct', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ userId: currentUser.uid, amount })
-                                  });
-                                  if (deductRes.ok) {
-                                    const deductData = await deductRes.json();
-                                    setCredits(deductData.remaining);
+                                  const deductRes = await deductCreditsLocal(amount);
+                                  if (deductRes.success && deductRes.remaining !== undefined) {
+                                    setCredits(deductRes.remaining);
                                     return true;
                                   } else {
                                     setChatNotification('Error en pago de créditos.');
@@ -4375,83 +4288,6 @@ export default function App() {
                           ))}
                         </div>
                         
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                           <div className="space-y-1.5">
-                              <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Cuenta Publicitaria</label>
-                              <select 
-                                value={selectedAdAccount}
-                                onChange={(e) => setSelectedAdAccount(e.target.value)}
-                                className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-[10px] text-white focus:border-neon-blue/50 outline-none h-[42px]"
-                              >
-                                <option value="">Seleccionar cuenta...</option>
-                                {adAccounts.map(acc => (
-                                  <option key={acc.id} value={acc.id}>{acc.name}</option>
-                                ))}
-                              </select>
-                            </div>
-                            <div className="space-y-1.5">
-                              <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Página de Facebook</label>
-                              <select 
-                                value={selectedPage}
-                                onChange={(e) => setSelectedPage(e.target.value)}
-                                className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-[10px] text-white focus:border-neon-blue/50 outline-none h-[42px]"
-                              >
-                                <option value="">Seleccionar página...</option>
-                                {pages.map(p => (
-                                  <option key={p.id} value={p.id}>{p.name}</option>
-                                ))}
-                              </select>
-                            </div>
-                            <div className="space-y-1.5">
-                              <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Segmentación e Intereses</label>
-                              <input 
-                                type="text" 
-                                value={campaign.audience}
-                                onChange={(e) => setCampaign({...campaign, audience: e.target.value})}
-                                placeholder="Ej: Tecnología, Compras online..."
-                                className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-[10px] text-white focus:border-neon-blue/50 outline-none h-[42px]"
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Ubicaciones (Placements)</label>
-                              <div className="grid grid-cols-2 gap-2 h-[42px]">
-                                {[
-                                  { key: 'feedEnabled', label: 'Feed' },
-                                  { key: 'reelsAndStories', label: 'Reels/Stories' }
-                                ].map((placement) => {
-                                  const isCombined = placement.key === 'reelsAndStories';
-                                  const isChecked = isCombined 
-                                    ? (campaign.reelsEnabled || campaign.storiesEnabled) 
-                                    : !!campaign[placement.key as keyof CampaignData];
-
-                                  return (
-                                    <label 
-                                      key={placement.key} 
-                                      className={cn(
-                                        "flex items-center gap-2 px-3 rounded-lg border transition-all cursor-pointer h-full",
-                                        isChecked ? "bg-neon-blue/10 border-neon-blue/30" : "bg-black/20 border-white/5 hover:border-white/20"
-                                      )}
-                                    >
-                                      <input 
-                                        type="checkbox"
-                                        checked={isChecked}
-                                        onChange={() => {
-                                          if (isCombined) {
-                                            const nextVal = !isChecked;
-                                            setCampaign({...campaign, reelsEnabled: nextVal, storiesEnabled: nextVal});
-                                          } else {
-                                            setCampaign({...campaign, [placement.key]: !campaign[placement.key as keyof CampaignData]});
-                                          }
-                                        }}
-                                        className="accent-neon-blue w-3 h-3"
-                                      />
-                                      <span className="text-[8px] font-bold uppercase tracking-wider text-white/70">{placement.label}</span>
-                                    </label>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                        </div>
                       </div>
                     ) : (
                       results[selectedResultIndex]?.funnelPhase && (
@@ -4477,33 +4313,37 @@ export default function App() {
                       </h3>
                       
                       <div className="space-y-4">
-                        <div className="space-y-1.5">
-                          <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Cuenta Publicitaria</label>
-                          <select 
-                            value={selectedAdAccount}
-                            onChange={(e) => setSelectedAdAccount(e.target.value)}
-                            className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-[10px] text-white focus:border-neon-blue/50 outline-none"
-                          >
-                            <option value="">Seleccionar cuenta...</option>
-                            {adAccounts.map(acc => (
-                              <option key={acc.id} value={acc.id}>{acc.name}</option>
-                            ))}
-                          </select>
-                        </div>
+                        {publishMode !== 'bulk' && (
+                          <>
+                            <div className="space-y-1.5">
+                              <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Cuenta Publicitaria</label>
+                              <select 
+                                value={selectedAdAccount}
+                                onChange={(e) => setSelectedAdAccount(e.target.value)}
+                                className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-[10px] text-white focus:border-neon-blue/50 outline-none"
+                              >
+                                <option value="">Seleccionar cuenta...</option>
+                                {adAccounts.map(acc => (
+                                  <option key={acc.id} value={acc.id}>{acc.name}</option>
+                                ))}
+                              </select>
+                            </div>
 
-                        <div className="space-y-1.5">
-                          <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Página de Facebook</label>
-                          <select 
-                            value={selectedPage}
-                            onChange={(e) => setSelectedPage(e.target.value)}
-                            className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-[10px] text-white focus:border-neon-blue/50 outline-none"
-                          >
-                            <option value="">Seleccionar página...</option>
-                            {pages.map(p => (
-                              <option key={p.id} value={p.id}>{p.name}</option>
-                            ))}
-                          </select>
-                        </div>
+                            <div className="space-y-1.5">
+                              <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Página de Facebook</label>
+                              <select 
+                                value={selectedPage}
+                                onChange={(e) => setSelectedPage(e.target.value)}
+                                className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-[10px] text-white focus:border-neon-blue/50 outline-none"
+                              >
+                                <option value="">Seleccionar página...</option>
+                                {pages.map(p => (
+                                  <option key={p.id} value={p.id}>{p.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </>
+                        )}
 
                         {!(results.length === 3 && results.some(r => r.funnelPhase)) ? (
                           <div className="space-y-1.5">
@@ -4579,47 +4419,49 @@ export default function App() {
                           </div>
                         </div>
 
-                        <div className="space-y-1.5">
-                          <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Ubicaciones</label>
-                          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                            {[
-                              { key: 'feedEnabled', label: 'Feed' },
-                              { key: 'reelsAndStories', label: 'Historias y Reels' },
-                              { key: 'instreamEnabled', label: 'Instream' },
-                              { key: 'advantagePlacementsEnabled', label: 'Advantage +' }
-                            ].map((placement) => {
-                              const isCombined = placement.key === 'reelsAndStories';
-                              const isChecked = isCombined 
-                                ? (campaign.reelsEnabled || campaign.storiesEnabled) 
-                                : !!campaign[placement.key as keyof CampaignData];
+                        {publishMode !== 'bulk' && (
+                          <div className="space-y-1.5">
+                            <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Ubicaciones</label>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                              {[
+                                { key: 'feedEnabled', label: 'Feed' },
+                                { key: 'reelsAndStories', label: 'Historias y Reels' },
+                                { key: 'instreamEnabled', label: 'Instream' },
+                                { key: 'advantagePlacementsEnabled', label: 'Advantage +' }
+                              ].map((placement) => {
+                                const isCombined = placement.key === 'reelsAndStories';
+                                const isChecked = isCombined 
+                                  ? (campaign.reelsEnabled || campaign.storiesEnabled) 
+                                  : !!campaign[placement.key as keyof CampaignData];
 
-                              return (
-                                <label 
-                                  key={placement.key} 
-                                  className={cn(
-                                    "flex items-center gap-2 p-2 rounded-lg border transition-all cursor-pointer",
-                                    isChecked ? "bg-neon-blue/10 border-neon-blue/30" : "bg-black/20 border-white/5 hover:border-white/20"
-                                  )}
-                                >
-                                  <input 
-                                    type="checkbox"
-                                    checked={isChecked}
-                                    onChange={() => {
-                                      if (isCombined) {
-                                        const nextVal = !isChecked;
-                                        setCampaign({...campaign, reelsEnabled: nextVal, storiesEnabled: nextVal});
-                                      } else {
-                                        setCampaign({...campaign, [placement.key]: !campaign[placement.key as keyof CampaignData]});
-                                      }
-                                    }}
-                                    className="accent-neon-blue w-3 h-3"
-                                  />
-                                  <span className="text-[8px] font-bold uppercase tracking-wider text-white/70">{placement.label}</span>
-                                </label>
-                              );
-                            })}
+                                return (
+                                  <label 
+                                    key={placement.key} 
+                                    className={cn(
+                                      "flex items-center gap-2 p-2 rounded-lg border transition-all cursor-pointer",
+                                      isChecked ? "bg-neon-blue/10 border-neon-blue/30" : "bg-black/20 border-white/5 hover:border-white/20"
+                                    )}
+                                  >
+                                    <input 
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => {
+                                        if (isCombined) {
+                                          const nextVal = !isChecked;
+                                          setCampaign({...campaign, reelsEnabled: nextVal, storiesEnabled: nextVal});
+                                        } else {
+                                          setCampaign({...campaign, [placement.key]: !campaign[placement.key as keyof CampaignData]});
+                                        }
+                                      }}
+                                      className="accent-neon-blue w-3 h-3"
+                                    />
+                                    <span className="text-[8px] font-bold uppercase tracking-wider text-white/70">{placement.label}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
                           </div>
-                        </div>
+                        )}
                       </div>
                     </div>
 
@@ -4630,15 +4472,17 @@ export default function App() {
                       </h3>
 
                       <div className="space-y-4">
-                        <div className="space-y-1.5">
-                          <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Audiencia Clave</label>
-                          <textarea 
-                            value={campaign.audience}
-                            onChange={(e) => setCampaign({...campaign, audience: e.target.value})}
-                            placeholder="Ej: Emprendedores digitales, 25-45 años, interesados en tecnología..."
-                            className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-[10px] text-white focus:border-neon-blue/50 outline-none h-20 resize-none"
-                          />
-                        </div>
+                        {publishMode !== 'bulk' && (
+                          <div className="space-y-1.5">
+                            <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Audiencia Clave</label>
+                            <textarea 
+                              value={campaign.audience}
+                              onChange={(e) => setCampaign({...campaign, audience: e.target.value})}
+                              placeholder="Ej: Emprendedores digitales, 25-45 años, interesados en tecnología..."
+                              className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-[10px] text-white focus:border-neon-blue/50 outline-none h-20 resize-none"
+                            />
+                          </div>
+                        )}
 
                         <div className="space-y-1.5">
                           <label className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Locación (País, Ciudad o Región)</label>
@@ -5091,16 +4935,6 @@ export default function App() {
           >
             <Download className="w-3 h-3" />
             INSTALAR APP
-          </button>
-        )}
-        
-        {isInstalled && !notificationsEnabled && (
-          <button 
-            onClick={setupNotifications}
-            className="px-4 py-1.5 bg-neon-green/20 text-neon-green border border-neon-green/50 rounded-lg hover:bg-neon-green/30 hover:shadow-[0_0_15px_rgba(0,255,128,0.4)] transition-all flex items-center gap-2"
-          >
-            <Bell className="w-3 h-3" />
-            ACTIVAR NOTIFICACIONES
           </button>
         )}
         

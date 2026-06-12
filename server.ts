@@ -2,73 +2,12 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
-import admin from "firebase-admin";
-import { getFirestore } from "firebase-admin/firestore";
 import fs from "fs";
+import { GoogleGenAI, GenerateVideosOperation } from "@google/genai";
 
 console.log("Starting server entry point...");
 
 dotenv.config();
-
-// Initialize Firebase Admin
-const configPath = path.join(process.cwd(), "firebase-applet-config.json");
-if (!fs.existsSync(configPath)) {
-  console.error("CRITICAL: firebase-applet-config.json NOT FOUND");
-}
-const firebaseConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-
-console.log("Initializing Firebase Admin for project:", firebaseConfig.projectId);
-
-if (!admin.apps.length) {
-  try {
-    // If we're in a Google Cloud environment (like AI Studio), 
-    // it's often better to initialize without explicit config to use ADC.
-    // We'll fall back to explicit config if needed.
-    if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.K_SERVICE) {
-      admin.initializeApp({
-        storageBucket: firebaseConfig.storageBucket
-      });
-      console.log("Firebase Admin initialized via default credentials.");
-    } else {
-      admin.initializeApp({
-        projectId: firebaseConfig.projectId,
-        storageBucket: firebaseConfig.storageBucket
-      });
-      console.log("Firebase Admin initialized with explicit projectId.");
-    }
-  } catch (error) {
-    console.error("Firebase Admin Init Error:", error);
-    // Absolute fallback
-    if (!admin.apps.length) {
-      admin.initializeApp({
-        projectId: firebaseConfig.projectId,
-        storageBucket: firebaseConfig.storageBucket
-      });
-    }
-  }
-}
-
-let db: admin.firestore.Firestore;
-try {
-  const dbId = (firebaseConfig.firestoreDatabaseId || "").trim();
-  
-  if (dbId && dbId !== "(default)") {
-    console.log("Using specific Firestore database ID:", dbId);
-    // Try to get it without explicit app first, which uses the default app
-    db = getFirestore(dbId);
-  } else {
-    console.log("Using default Firestore database.");
-    db = getFirestore();
-  }
-  
-  // Log more details to help debug PERMISSION_DENIED
-  const actualDbId = (db as any)._databaseId || (db as any).databaseId || "(default)";
-  const settings = (db as any)._settings || {};
-  console.log(`Firestore Admin instance ready. Database: ${actualDbId} (Project: ${settings.projectId || "default"})`);
-} catch (e) {
-  console.error("FATAL: Failed to initialize Firestore Admin Instance:", e);
-  throw e;
-}
 
 async function startServer() {
   const app = express();
@@ -103,115 +42,6 @@ async function startServer() {
     }
   });
 
-  // --- Credit & Payment Routes ---
-
-  // 1. Initial Credits for new users
-  app.post("/api/user/initialize", async (req, res) => {
-    const { userId, email } = req.body;
-    if (!userId) return res.status(400).json({ error: "Missing userId" });
-
-    try {
-      const userRef = db.collection("users").doc(userId);
-      const userDoc = await userRef.get();
-
-      if (!userDoc.exists) {
-        // Force unlimited for specific admin
-        const initialCredits = email === 'smartdigitalexperience@gmail.com' ? -1 : 60;
-        await userRef.set({
-          email,
-          credits: initialCredits,
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          multiVariantEnabled: true
-        });
-        return res.json({ credits: initialCredits, isNew: true });
-      }
-
-      const data = userDoc.data();
-      let credits = data?.credits ?? 0;
-      if (data?.email === 'smartdigitalexperience@gmail.com') {
-        credits = -1;
-      }
-      res.json({ credits, isNew: false });
-    } catch (error: any) {
-      console.error("Init Error:", error);
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  // 2. Bold Payment Webhook
-  // Bold sends notifications to this URL. You must set this in the Bold dashboard.
-  app.post("/api/payments/bold-webhook", async (req, res) => {
-    const payload = req.body;
-    // Bold usually sends: order_id, status, amount, and custom data (like our userId)
-    // In LNK payments, we might not have user info unless we used metadata.
-    // For this example, we assume the link included metadata or we correlate via order_id.
-    
-    console.log("Bold Webhook Received:", JSON.stringify(payload, null, 2));
-
-    const { status, order_id, amount, metadata } = payload;
-    const userId = metadata?.userId || payload.userId; // Bold might pass this if configured
-
-    if (status === "APPROVED" && userId) {
-      let creditsToAdd = 0;
-      const price = parseFloat(amount);
-
-      // Match prices to credits as per user request
-      if (price >= 500) creditsToAdd = -1; // Unlimited
-      else if (price >= 300) creditsToAdd = 5000;
-      else if (price >= 200) creditsToAdd = 3000;
-      else if (price >= 100) creditsToAdd = 1000;
-      else if (price >= 50) creditsToAdd = 500;
-      else if (price >= 30) creditsToAdd = 200;
-
-      try {
-        const userRef = db.collection("users").doc(userId);
-        if (creditsToAdd === -1) {
-          await userRef.update({ credits: -1 });
-        } else {
-          await userRef.update({
-            credits: admin.firestore.FieldValue.increment(creditsToAdd)
-          });
-        }
-        console.log(`Added ${creditsToAdd} credits to user ${userId}`);
-      } catch (err) {
-        console.error("Error updating credits via webhook:", err);
-      }
-    }
-
-    res.status(200).send("OK");
-  });
-
-  // 3. Deduct Credits
-  app.post("/api/user/credits/deduct", async (req, res) => {
-    const { userId, amount } = req.body;
-    if (!userId || !amount) return res.status(400).json({ error: "Missing params" });
-
-    try {
-      const userRef = db.collection("users").doc(userId);
-      const userDoc = await userRef.get();
-      
-      if (!userDoc.exists) return res.status(404).json({ error: "User not found" });
-      
-      const userData = userDoc.data();
-      const currentCredits = userData?.credits;
-      
-      if (currentCredits === -1 || userData?.email === 'smartdigitalexperience@gmail.com') {
-        return res.json({ success: true, remaining: -1 });
-      }
-
-      if (currentCredits < amount) {
-        return res.status(403).json({ error: "Insufficient credits", remaining: currentCredits });
-      }
-
-      const newCredits = currentCredits - amount;
-      await userRef.update({ credits: newCredits });
-      
-      res.json({ success: true, remaining: newCredits });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
   app.get("/api/proxy-image", async (req, res) => {
     try {
       const imageUrl = req.query.url as string;
@@ -237,83 +67,6 @@ async function startServer() {
     } catch (e: any) {
       console.error("Proxy error:", e);
       res.status(500).send(e.message);
-    }
-  });
-
-  // 4. Share VR Document
-  app.post("/api/share-vr", async (req, res) => {
-    try {
-      const { backgroundImageUrl, elementImageUrl } = req.body;
-      if (!backgroundImageUrl) {
-        return res.status(400).json({ error: "Missing background image data" });
-      }
-
-      const bucket = admin.storage().bucket();
-      const storageRefPrefix = `vr_shares/shared_vr_${Date.now()}`;
-      
-      const isVideo = backgroundImageUrl.includes('video') || backgroundImageUrl.startsWith('data:video');
-      const extension = isVideo ? '.mp4' : '.jpg';
-      
-      // Extract base64 and mime type safely for large strings
-      let bgBuffer;
-      let bgMime = isVideo ? 'video/mp4' : 'image/jpeg';
-      
-      const bgCommaIdx = backgroundImageUrl.indexOf(',');
-      if (bgCommaIdx !== -1 && backgroundImageUrl.startsWith('data:')) {
-        const header = backgroundImageUrl.substring(0, bgCommaIdx);
-        bgMime = header.replace('data:', '').replace(';base64', '');
-        const bgBase64 = backgroundImageUrl.substring(bgCommaIdx + 1);
-        bgBuffer = Buffer.from(bgBase64, 'base64');
-      } else {
-        return res.status(400).json({ error: "Invalid base64 data" });
-      }
-
-      const { v4: uuidv4 } = require('uuid');
-      const bgToken = uuidv4();
-      const bgFile = bucket.file(`${storageRefPrefix}${extension}`);
-      await bgFile.save(bgBuffer, {
-        metadata: { 
-          contentType: bgMime,
-          metadata: {
-            firebaseStorageDownloadTokens: bgToken
-          }
-        }
-      });
-      const bgDownloadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(bgFile.name)}?alt=media&token=${bgToken}`;
-
-      let elemDownloadUrl = null;
-      if (elementImageUrl) {
-        const elCommaIdx = elementImageUrl.indexOf(',');
-        if (elCommaIdx !== -1 && elementImageUrl.startsWith('data:')) {
-          const elHeader = elementImageUrl.substring(0, elCommaIdx);
-          const elMime = elHeader.replace('data:', '').replace(';base64', '');
-          const elBase64 = elementImageUrl.substring(elCommaIdx + 1);
-          const elBuffer = Buffer.from(elBase64, 'base64');
-          const elFile = bucket.file(`${storageRefPrefix}_element.png`);
-          const elToken = uuidv4();
-          await elFile.save(elBuffer, {
-            metadata: { 
-              contentType: elMime,
-              metadata: {
-                firebaseStorageDownloadTokens: elToken
-              }
-            }
-          });
-          elemDownloadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(elFile.name)}?alt=media&token=${elToken}`;
-        }
-      }
-
-      const docRef = await db.collection("vr_shares").add({
-        backgroundImageUrl: bgDownloadUrl,
-        elementImageUrl: elemDownloadUrl,
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
-      });
-
-      res.json({ success: true, shareId: docRef.id });
-    } catch (error: any) {
-      console.error("VR Share Error:", error);
-      require('fs').writeFileSync('vr_share_error.log', error.stack || error.message);
-      res.status(500).json({ error: error.message });
     }
   });
 
@@ -895,6 +648,166 @@ async function startServer() {
       res.status(500).json({ 
         error: error.message || "Error interno al publicar en Meta Ads."
       });
+    }
+  });
+
+  // --- Gemini API Routes ---
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+  app.post("/api/generate-image", async (req, res) => {
+    try {
+      const { prompt, aspectRatio, visualBase64, visualMimeType, elementBase64, elementMimeType } = req.body;
+      const is360 = aspectRatio && aspectRatio.includes("2:1");
+      const modelName = "gemini-3.1-flash-image";
+      const mappedAspectRatio = aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : is360 ? "16:9" : "1:1";
+      
+      const inputElements: any[] = [];
+      
+      if (visualBase64 && visualMimeType) {
+        inputElements.push({
+          type: "image",
+          data: visualBase64.includes(',') ? visualBase64.split(',')[1] : visualBase64,
+          mime_type: visualMimeType
+        });
+      }
+      
+      if (elementBase64 && elementMimeType) {
+        inputElements.push({
+          type: "image",
+          data: elementBase64.includes(',') ? elementBase64.split(',')[1] : elementBase64,
+          mime_type: elementMimeType
+        });
+      }
+      
+      const textPrompt = is360 ? `360 degree equirectangular projection, VR 360 photosphere panorama: ${prompt}` : prompt;
+      inputElements.push({
+        type: "text",
+        text: textPrompt
+      });
+
+      const systemInstruction = is360
+      ? `Genera una imagen panorámica de realidad virtual de 360 grados en proyección equirrectangular pura de CALIDAD ULTRA DE ALTA DEFINICIÓN 8K (7680x3840) para Meta Ads inmersivos.
+      REGLAS CRÍTICAS DE ENCUADRE Y CALIDAD DE ALTA DEFINICIÓN PARA PANORAMAS:
+      1. RELACIÓN EQUIRRECTANGULAR PERFECTA: La imagen debe diseñarse en una relación de aspecto que represente la esfera completa de manera fluida (360° horizontal x 180° vertical).
+      2. ACOPLAMIENTO DE EXTREMOS 100% INVISIBLE: El extremo de la extrema izquierda (x=0) y el extremo de la extrema derecha (x=ancho) deben coincidir milimétricamente en iluminación, texturas, colores y líneas de guía espacial para crear una costura totalmente seamless libre de cortes o parpadeos durante el giro.
+      3. Horizonte perfectamente recto, centrado verticalmente y equilibrado. Evita cualquier distorsión aberrante en el centro de visión.
+      4. Fidelidad tridimensional suprema de súper alta resolución 8K, texturas nítidas hiper-glorificadas, microdetalles ultra-definidos de alta frecuencia y sin grano ni pixelado para una inmersión VR absoluta de grado premium.`
+      : `Genera una imagen publicitaria premium. 
+      REGLA DE ORO (ENCUADRE): La imagen debe ser FULL-BLEED, llenando el 100% de la relación (${aspectRatio}).
+      REGLA DE PERSONIFICACIÓN ACTIVA: Incluye a la audiencia objetivo REALIZANDO una acción física y real propia de su contexto profesional o de estilo de vida, integrada orgánicamente con el producto.
+      
+      REGLA DE COMPOSICIÓN (SI SE ENVIARON DOS REFERENCIAS):
+      Si se han proporcionado dos imágenes de referencia:
+      - La primera imagen representa la escena base o de fondo (la imagen principal a la que se le añade algo).
+      - La segunda imagen representa un elemento visual específico, objeto, logo o producto que se debe integrar con total realismo bidimensional/tridimensional en la primera imagen.
+      - Utiliza las instrucciones del prompt para fusionar ambos de forma cohesiva respetando sombras, iluminación y reflejos.`;
+
+      const interaction = await ai.interactions.create({
+        model: modelName,
+        input: inputElements,
+        system_instruction: systemInstruction,
+        response_modalities: ['image', 'text'],
+        generation_config: {
+          image_config: {
+            aspect_ratio: mappedAspectRatio,
+            ...(is360 ? { image_size: "4K" } : { image_size: "1K" })
+          }
+        } as any
+      });
+
+      let imageUrl = "";
+      for (const step of interaction.steps) {
+        if (step.type === 'model_output') {
+          const imageContent = step.content?.find(c => c.type === 'image');
+          if (imageContent && imageContent.data) {
+            imageUrl = `data:${imageContent.mime_type || 'image/png'};base64,${imageContent.data}`;
+            break;
+          }
+        }
+      }
+
+      res.json({ imageUrl });
+    } catch (error: any) {
+      console.error("Error generating image:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/generate-video-start", async (req, res) => {
+    try {
+      const { prompt, aspectRatio, duration, visualBase64, visualMimeType } = req.body;
+      const is360 = aspectRatio && aspectRatio.includes("2:1");
+      const mappedAspectRatio = aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : is360 ? "16:9" : "1:1";
+      
+      const config: any = {
+        numberOfVideos: 1,
+        resolution: '1080p',
+        aspectRatio: mappedAspectRatio
+      };
+
+      const operationPayload: any = {
+        model: 'veo-3.1-lite-generate-preview',
+        prompt: is360 ? `360 degree equirectangular projection, VR 360 photosphere panoramic video: ${prompt}` : prompt,
+        config
+      };
+
+      if (visualBase64 && visualMimeType) {
+        operationPayload.image = {
+          imageBytes: visualBase64.includes(',') ? visualBase64.split(',')[1] : visualBase64,
+          mimeType: visualMimeType
+        };
+      }
+
+      const operation = await ai.models.generateVideos(operationPayload);
+      res.json({ operationName: operation.name });
+    } catch (error: any) {
+      console.error("Error starting video generation:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/video-status", async (req, res) => {
+    try {
+      const { operationName } = req.body;
+      if (!operationName) return res.status(400).json({ error: "Missing operationName" });
+      
+      const op = new GenerateVideosOperation();
+      op.name = operationName;
+      const updated = await ai.operations.getVideosOperation({ operation: op });
+      res.json({ done: updated.done });
+    } catch (error: any) {
+      console.error("Error checking video status:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/video-download", async (req, res) => {
+    try {
+      const { operationName } = req.body;
+      if (!operationName) return res.status(400).json({ error: "Missing operationName" });
+      
+      const op = new GenerateVideosOperation();
+      op.name = operationName;
+      const updated = await ai.operations.getVideosOperation({ operation: op });
+      const uri = updated.response?.generatedVideos?.[0]?.video?.uri;
+      
+      if (!uri) {
+        return res.status(400).json({ error: "Video URI not found yet" });
+      }
+
+      const videoRes = await fetch(uri, {
+        headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY! },
+      });
+      res.setHeader('Content-Type', 'video/mp4');
+      videoRes.body!.pipeTo(
+        new WritableStream({
+          write(chunk) { res.write(chunk); },
+          close() { res.end(); },
+        })
+      );
+    } catch (error: any) {
+      console.error("Error downloading video:", error);
+      res.status(500).json({ error: error.message });
     }
   });
 

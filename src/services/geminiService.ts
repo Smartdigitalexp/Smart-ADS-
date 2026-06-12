@@ -237,91 +237,69 @@ export async function analyzeAndGenerate(
         ];
 
         if (campaign.format === 'video') {
-          const is360 = campaign.aspectRatio.includes("2:1");
-          const videoResponse = await ai.models.generateContent({
-            model: "veo-3.1-lite-generate-preview",
-            contents: [
-              {
-                parts: [
-                  { text: is360 ? `360 degree equirectangular projection, VR 360 photosphere panoramic video: ${variant.visualPrompt}` : variant.visualPrompt },
-                  ...(visualBase64 && visualMimeType ? [{
-                    inlineData: {
-                      data: visualBase64,
-                      mimeType: visualMimeType
-                    }
-                  }] : [])
-                ]
-              }
-            ],
-            config: {
-              videoConfig: {
-                aspectRatio: campaign.aspectRatio === "9:16" ? "9:16" : campaign.aspectRatio === "16:9" ? "16:9" : is360 ? "16:9" : "1:1"
-              },
-              systemInstruction: is360 
-                ? `Eres un Director de Fotografía experto en formatos inmersivos de realidad virtual. Genera un video panorámico de realidad virtual de 360 grados en proyección equirrectangular.
-                REGLAS CRÍTICAS PARA 360° PANORAMA:
-                1. El video DEBE ser una proyección panorámica equirrectangular completa de 360 grados (formato 2:1/photosphere).
-                2. Los bordes laterales izquierdo y derecho deben acoplarse y ser continuos/sin costura (seamless wrap-around).
-                3. El horizonte debe estar perfectamente nivelado en el centro vertical.`
-                : `Eres un Director de Fotografía experto. Genera un video cinematográfico de ALTA CALIDAD y MÁXIMA RESOLUCIÓN. 
-                REGLAS CRÍTICAS DE ENCUADRE Y ACCIÓN:
-                1. El video DEBE ocupar el 100% del lienzo (${campaign.aspectRatio}) de forma NATIVA. La imagen debe ser FULL-BLEED (sangrado total).
-                2. PERSONIFICACIÓN ACTIVA: El sujeto (audiencia) debe estar REALIZANDO una acción física relacionada con su profesión o estilo de vida.
-                3. Si el contenido no llena el espacio, amplía la cámara o el fondo para asegurar cobertura de borde a borde.`
-            } as any
-          });
-
-          const videoPart = videoResponse.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-          if (videoPart?.inlineData) {
-            imageUrl = `data:video/mp4;base64,${videoPart.inlineData.data}`;
+          try {
+            const startRes = await fetch('/api/generate-video-start', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                prompt: variant.visualPrompt, 
+                aspectRatio: campaign.aspectRatio, 
+                duration: 5, 
+                visualBase64, 
+                visualMimeType 
+              })
+            });
+            const startData = await startRes.json();
+            if (startData.error) throw new Error(startData.error);
+            
+            const opName = startData.operationName;
+            
+            // polling
+            while (true) {
+              await new Promise(resolve => setTimeout(resolve, 6000));
+              const statRes = await fetch('/api/video-status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ operationName: opName })
+              });
+              const statData = await statRes.json();
+              if (statData.done) break;
+            }
+            
+            // download
+            const downRes = await fetch('/api/video-download', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ operationName: opName })
+            });
+            
+            if (!downRes.ok) throw new Error("Video download failed");
+            const blob = await downRes.blob();
+            imageUrl = await new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.readAsDataURL(blob);
+            });
+          } catch (err) {
+            console.error("Video chunk generation error", err);
           }
         } else {
-          const is360 = campaign.aspectRatio.includes("2:1");
-          
-          const inputElements: any[] = [];
-          inputElements.push({
-            type: "text",
-            text: is360 ? `360 degree equirectangular projection, VR 360 photosphere panorama: ${variant.visualPrompt}` : variant.visualPrompt
-          });
-          
-          if (visualBase64 && visualMimeType) {
-            inputElements.push({
-              type: "image",
-              data: visualBase64,
-              mime_type: visualMimeType
+          try {
+            const res = await fetch('/api/generate-image', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                prompt: variant.visualPrompt, 
+                aspectRatio: campaign.aspectRatio, 
+                visualBase64, 
+                visualMimeType 
+              })
             });
-          }
-
-          const interaction = await ai.interactions.create({
-            model: "gemini-2.5-flash-image",
-            input: inputElements,
-            response_modalities: ['image', 'text'],
-            generation_config: {
-              image_config: {
-                aspect_ratio: campaign.aspectRatio === "9:16" ? "9:16" : campaign.aspectRatio === "16:9" ? "16:9" : is360 ? "16:9" : "1:1"
-              }
-            } as any,
-            system_instruction: is360
-                ? `Genera una imagen panorámica de realidad virtual de 360 grados en proyección equirrectangular pura de ultra alta calidad.
-                REGLAS CRÍTICAS PARA 360° PANORAMA:
-                1. FORMATO EQUIRRECTANGULAR: La imagen debe ser una proyección photosphere/panorámica completa de 360 grados de ancho por 180 grados de alto.
-                2. ACOPLAMIENTO CONTINUO: Los bordes de la extrema izquierda y extrema derecha deben unirse perfectamente (seamless wrap-around) sin distorsiones ni cortes visibles.
-                3. Horizonte perfectamente centrado y recto.`
-                : `Genera una imagen publicitaria de ALTA CALIDAD. 
-                REGLAS CRÍTICAS:
-                1. ENCUADRE TOTAL: El contenido debe llenar el 100% del área (${campaign.aspectRatio}). Full-bleed obligatorio.
-                2. PERSONIFICACIÓN ACTIVA: El personaje de la audiencia debe estar EJECUTANDO una acción propia de su contexto (ej: operando, diseñando, cocinando).
-                3. TRIDIMENSIONALIDAD: El producto debe tener peso, sombras de contacto y profundidad 3D real integrada en el entorno.`
-          });
-
-          for (const step of interaction.steps) {
-            if (step.type === 'model_output') {
-              const imageContent = step.content?.find(c => c.type === 'image');
-              if (imageContent && imageContent.data) {
-                imageUrl = `data:${imageContent.mime_type || 'image/png'};base64,${imageContent.data}`;
-                break;
-              }
-            }
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+            imageUrl = data.imageUrl || "";
+          } catch (err) {
+            console.error("Image chunk generation error", err);
           }
         }
       } catch (e) {
@@ -391,35 +369,8 @@ export async function optimizeProductReference(
 
   const technicalPrompt = analysisResponse.text?.trim() || `Professional studio product shot of ${productName} on pure white background, ultra-high resolution, 8k, sharp focus, maintaining original product features and labels perfectly.`;
 
-  // 2. Execute High-Resolution Generation (Upscaling & Background Removal effect)
-  const interaction = await ai.interactions.create({
-    model: "gemini-2.5-flash-image",
-    input: [
-      { text: technicalPrompt },
-      { 
-        type: "image",
-        data: visualBase64,
-        mime_type: visualMimeType
-      }
-    ],
-    response_modalities: ['image', 'text'],
-    generation_config: {
-      image_config: {
-        aspect_ratio: "1:1"
-      }
-    } as any
-  });
-
-  for (const step of interaction.steps) {
-    if (step.type === 'model_output') {
-      const imageContent = step.content?.find(c => c.type === 'image');
-      if (imageContent && imageContent.data) {
-        return `data:${imageContent.mime_type || 'image/png'};base64,${imageContent.data}`;
-      }
-    }
-  }
-
-  return "";
+  // 2. Execute High-Resolution Generation via our backend
+  return await generateImageFromPrompt(technicalPrompt, "1:1", visualBase64, visualMimeType);
 }
 
 export async function generateStorytellingPrompt(
@@ -504,46 +455,48 @@ export async function generateVideoFromPrompt(
     finalPrompt = await generateStorytellingPrompt(storytellingText, duration, audience, cta);
   }
 
-  const is360 = aspectRatio.includes("2:1");
-  const contents = [
-    {
-      parts: [
-        { text: is360 ? `360 degree equirectangular projection, VR 360 photosphere panoramic video: ${finalPrompt}` : finalPrompt },
-        ...(visualBase64 && visualMimeType ? [{
-          inlineData: {
-            data: visualBase64,
-            mimeType: visualMimeType
-          }
-        }] : [])
-      ]
-    }
-  ];
-
-  const response = await ai.models.generateContent({
-    model: "veo-3.1-lite-generate-preview",
-    contents: contents,
-    config: {
-      videoConfig: {
-        aspectRatio: aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : is360 ? "16:9" : "1:1",
-        durationSeconds: duration
-      },
-      systemInstruction: is360 
-        ? `Eres un Director de Fotografía experto en formatos inmersivos de realidad virtual de última generación (8K UHD). Genera un video panorámico de realidad virtual de 360 grados en proyección equirrectangular con calidad ultra cinematográfica de 8K (7680x3840).
-        REGLAS CRÍTICAS PARA EL FORMATO PANORÁMICO 360 8K:
-        1. PROYECCIÓN EQUIRRECTANGULAR PERFECTA: El video debe estructurarse con la relación matemática exacta de aspecto 2:1 propia de una photosphere panorámica completa de 360° x 180°.
-        2. ENCUADRE DE EXTREMOS Y ACOPLAMIENTO INVISIBLE (SEAMLESS 360): Los extremos laterales izquierdo y derecho de la imagen de cada fotograma deben unirse milimétricamente sin ninguna costura, salto de luz o distorsión espacial. La continuidad volumétrica debe ser perfecta para evitar costuras visibles durante la inmersión interactiva.
-        3. HORIZONTE RECTO Y ENFOCADOR: El horizonte se mantendrá nivelado de manera absoluta en el centro meridiano vertical.
-        4. TEXTURAS DE ALTO CONTRASTE 8K: Máxima nitidez y fidelidad fotorrealista adaptada óptimamente para entornos corporativos tridimensionales y simulaciones de Meta Ads.`
-        : `Eres un experto cinematográfico de élite. Genera un video de ALTA RESOLUCIÓN con composición premium.
-        REGLAS DE ORO:
-        1. ENCUADRE FULL-FRAME: El video debe expandirse por TODO el lienzo (${aspectRatio}) sin excepción.
-        2. PERSONIFICACIÓN ACTIVA & AVATAR: El personaje debe estar vivo, moviéndose y hablando (avatar lip-sync) si el prompt lo sugiere.
-        3. CALIDAD 8K: Texturas realistas y movimientos fluidos.`
-    } as any
+  const startRes = await fetch('/api/generate-video-start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ 
+      prompt: finalPrompt, 
+      aspectRatio, 
+      duration, 
+      visualBase64, 
+      visualMimeType 
+    })
   });
-
-  const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-  return part?.inlineData ? `data:video/mp4;base64,${part.inlineData.data}` : "";
+  const startData = await startRes.json();
+  if (startData.error) throw new Error(startData.error);
+  
+  const opName = startData.operationName;
+  
+  // polling
+  while (true) {
+    await new Promise(resolve => setTimeout(resolve, 6000));
+    const statRes = await fetch('/api/video-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ operationName: opName })
+    });
+    const statData = await statRes.json();
+    if (statData.done) break;
+  }
+  
+  // download
+  const downRes = await fetch('/api/video-download', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ operationName: opName })
+  });
+  
+  if (!downRes.ok) throw new Error("Video download failed");
+  const blob = await downRes.blob();
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.readAsDataURL(blob);
+  });
 }
 
 export async function generateImageFromPrompt(
@@ -554,74 +507,21 @@ export async function generateImageFromPrompt(
   elementBase64?: string,
   elementMimeType?: string
 ): Promise<string> {
-  const is360 = aspectRatio.includes("2:1");
-  const modelName = is360 ? "gemini-3.1-flash-image" : "gemini-2.5-flash-image";
-  const mappedAspectRatio = aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : is360 ? "16:9" : "1:1";
-  
-  const inputElements: any[] = [];
-  
-  if (visualBase64 && visualMimeType) {
-    inputElements.push({
-      type: "image",
-      data: visualBase64,
-      mime_type: visualMimeType
-    });
-  }
-  
-  if (elementBase64 && elementMimeType) {
-    inputElements.push({
-      type: "image",
-      data: elementBase64,
-      mime_type: elementMimeType
-    });
-  }
-  
-  const textPrompt = is360 ? `360 degree equirectangular projection, VR 360 photosphere panorama: ${prompt}` : prompt;
-  inputElements.push({
-    type: "text",
-    text: textPrompt
+  const res = await fetch('/api/generate-image', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ 
+      prompt, 
+      aspectRatio, 
+      visualBase64, 
+      visualMimeType,
+      elementBase64,
+      elementMimeType
+    })
   });
-
-  const systemInstruction = is360
-  ? `Genera una imagen panorámica de realidad virtual de 360 grados en proyección equirrectangular pura de CALIDAD ULTRA DE ALTA DEFINICIÓN 8K (7680x3840) para Meta Ads inmersivos.
-  REGLAS CRÍTICAS DE ENCUADRE Y CALIDAD DE ALTA DEFINICIÓN PARA PANORAMAS:
-  1. RELACIÓN EQUIRRECTANGULAR PERFECTA: La imagen debe diseñarse en una relación de aspecto que represente la esfera completa de manera fluida (360° horizontal x 180° vertical).
-  2. ACOPLAMIENTO DE EXTREMOS 100% INVISIBLE: El extremo de la extrema izquierda (x=0) y el extremo de la extrema derecha (x=ancho) deben coincidir milimétricamente en iluminación, texturas, colores y líneas de guía espacial para crear una costura totalmente seamless libre de cortes o parpadeos durante el giro.
-  3. Horizonte perfectamente recto, centrado verticalmente y equilibrado. Evita cualquier distorsión aberrante en el centro de visión.
-  4. Fidelidad tridimensional suprema de súper alta resolución 8K, texturas nítidas hiper-glorificadas, microdetalles ultra-definidos de alta frecuencia y sin grano ni pixelado para una inmersión VR absoluta de grado premium.`
-  : `Genera una imagen publicitaria premium. 
-  REGLA DE ORO (ENCUADRE): La imagen debe ser FULL-BLEED, llenando el 100% de la relación (${aspectRatio}).
-  REGLA DE PERSONIFICACIÓN ACTIVA: Incluye a la audiencia objetivo REALIZANDO una acción física y real propia de su contexto profesional o de estilo de vida, integrada orgánicamente con el producto.
-  
-  REGLA DE COMPOSICIÓN (SI SE ENVIARON DOS REFERENCIAS):
-  Si se han proporcionado dos imágenes de referencia:
-  - La primera imagen representa la escena base o de fondo (la imagen principal a la que se le añade algo).
-  - La segunda imagen representa un elemento visual específico, objeto, logo o producto que se debe integrar con total realismo bidimensional/tridimensional en la primera imagen.
-  - Utiliza las instrucciones del prompt para fusionar ambos de forma cohesiva respetando sombras, iluminación y reflejos.`;
-
-  const interaction = await ai.interactions.create({
-    model: modelName,
-    input: inputElements,
-    system_instruction: systemInstruction,
-    response_modalities: ['image', 'text'],
-    generation_config: {
-      image_config: {
-        aspect_ratio: mappedAspectRatio,
-        ...(is360 ? { image_size: "4K" } : { image_size: "1K" })
-      }
-    } as any
-  });
-
-  for (const step of interaction.steps) {
-    if (step.type === 'model_output') {
-      const imageContent = step.content?.find(c => c.type === 'image');
-      if (imageContent && imageContent.data) {
-        return `data:${imageContent.mime_type || 'image/png'};base64,${imageContent.data}`;
-      }
-    }
-  }
-
-  return "";
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data.imageUrl || "";
 }
 
 export async function generateCreativeConcept(
@@ -806,7 +706,10 @@ export async function generateStrategicPlan(
 
     REQUERIMIENTOS POR FASE:
     1. Nombre de la fase.
-    2. Objetivo específico de la fase.
+    2. Objetivo específico de la fase. IMPORTANTE: Para publicar correctamente en Meta Ads, el campo 'objective' DEBE ser exactamente:
+       - "Reconocimiento" para la primera fase (Awareness).
+       - "Tráfico" para la segunda fase (Consideration).
+       - "${objective}" para la tercera fase (Conversion).
     3. Mensaje clave / Storytelling de la fase.
     4. Formatos recomendados.
     5. Tipos de contenido.

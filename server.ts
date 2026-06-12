@@ -710,7 +710,7 @@ async function startServer() {
         generation_config: {
           image_config: {
             aspect_ratio: mappedAspectRatio,
-            ...(is360 ? { image_size: "4K" } : { image_size: "1K" })
+            ...(is360 ? { image_size: "2K" } : { image_size: "1K" })
           }
         } as any
       });
@@ -798,13 +798,9 @@ async function startServer() {
       const videoRes = await fetch(uri, {
         headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY! },
       });
+      const arrayBuffer = await videoRes.arrayBuffer();
       res.setHeader('Content-Type', 'video/mp4');
-      videoRes.body!.pipeTo(
-        new WritableStream({
-          write(chunk) { res.write(chunk); },
-          close() { res.end(); },
-        })
-      );
+      res.send(Buffer.from(arrayBuffer));
     } catch (error: any) {
       console.error("Error downloading video:", error);
       res.status(500).json({ error: error.message });

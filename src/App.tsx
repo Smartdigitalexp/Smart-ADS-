@@ -1965,6 +1965,28 @@ export default function App() {
     }
   };
 
+  const cleanUndefinedForFirestore = (obj: any): any => {
+    if (obj === null || obj === undefined) return null;
+    if (Array.isArray(obj)) {
+      return obj.map(item => cleanUndefinedForFirestore(item));
+    }
+    if (typeof obj === 'object') {
+      const clean: any = {};
+      for (const key in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, key)) {
+          const val = obj[key];
+          if (val !== undefined && val !== null) {
+            clean[key] = cleanUndefinedForFirestore(val);
+          } else {
+            clean[key] = null;
+          }
+        }
+      }
+      return clean;
+    }
+    return obj;
+  };
+
   const processAds = async () => {
     if (!campaign.productName) {
       setChatNotification('Faltan campos obligatorios: Nombre del producto.');
@@ -2075,29 +2097,34 @@ export default function App() {
             // Better yet: just save the prompts and metadata for now if it fails.
           }));
 
+          const cleanCampaign = cleanUndefinedForFirestore(campaign || {});
+          const cleanResults = cleanUndefinedForFirestore(resultsForHistory || []);
+
           const docRef = await addDoc(collection(db, 'history'), {
-            userEmail: loginEmail,
-            campaign: { ...campaign },
-            results: resultsForHistory,
+            userEmail: loginEmail || auth.currentUser?.email || 'unknown',
+            campaign: cleanCampaign,
+            results: cleanResults,
             timestamp: serverTimestamp()
           });
           setCurrentHistoryId(docRef.id);
-          fetchHistory(loginEmail);
+          fetchHistory(loginEmail || auth.currentUser?.email || '');
         } catch (err: any) {
           console.error("Error saving to history:", err);
           // If size error, retry without visuals
           if (err.message && err.message.includes('maximum allowed size')) {
             try {
               const strippedResults = res.map(r => ({ ...r, generatedImageUrl: '(Media too large for history)' }));
+              const cleanCampaign = cleanUndefinedForFirestore(campaign || {});
+              const cleanStrippedResults = cleanUndefinedForFirestore(strippedResults || []);
               const docRef = await addDoc(collection(db, 'history'), {
-                userEmail: loginEmail,
-                campaign: { ...campaign },
-                results: strippedResults,
+                userEmail: loginEmail || auth.currentUser?.email || 'unknown',
+                campaign: cleanCampaign,
+                results: cleanStrippedResults,
                 timestamp: serverTimestamp(),
                 sizeError: true
               });
               setCurrentHistoryId(docRef.id);
-              fetchHistory(loginEmail);
+              fetchHistory(loginEmail || auth.currentUser?.email || '');
             } catch (innerErr) {
               console.error("Critical history error:", innerErr);
             }

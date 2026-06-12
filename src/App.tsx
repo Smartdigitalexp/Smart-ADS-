@@ -97,6 +97,7 @@ import {
   auth, 
   db, 
   signInWithGoogle, 
+  googleProvider,
   collection, 
   addDoc, 
   query, 
@@ -109,7 +110,7 @@ import {
   getDoc,
   setDoc
 } from './lib/firebase';
-import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
+import { onAuthStateChanged, signOut, User as FirebaseUser, signInWithPopup } from 'firebase/auth';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -493,8 +494,21 @@ export default function App() {
           const pgs = await getPages(savedToken);
           setAdAccounts(accounts);
           setPages(pgs);
-          if (accounts.length > 0) setSelectedAdAccount(accounts[0].id);
-          if (pgs.length > 0) setSelectedPage(pgs[0].id);
+          
+          const savedAdAccount = localStorage.getItem('meta_selected_ad_account');
+          const savedPage = localStorage.getItem('meta_selected_page');
+
+          if (savedAdAccount && accounts.some(acc => acc.id === savedAdAccount)) {
+            setSelectedAdAccount(savedAdAccount);
+          } else if (accounts.length > 0) {
+            setSelectedAdAccount(accounts[0].id);
+          }
+
+          if (savedPage && pgs.some(p => p.id === savedPage)) {
+            setSelectedPage(savedPage);
+          } else if (pgs.length > 0) {
+            setSelectedPage(pgs[0].id);
+          }
         } catch (err) {
           console.error("Auto-login fetch error:", err);
           // If token is invalid, clear it
@@ -507,6 +521,19 @@ export default function App() {
     };
     initMeta();
   }, []);
+
+  // Synchronize dynamic selections back to browser storage
+  useEffect(() => {
+    if (selectedAdAccount) {
+      localStorage.setItem('meta_selected_ad_account', selectedAdAccount);
+    }
+  }, [selectedAdAccount]);
+
+  useEffect(() => {
+    if (selectedPage) {
+      localStorage.setItem('meta_selected_page', selectedPage);
+    }
+  }, [selectedPage]);
 
   useEffect(() => {
     if (chatNotification) {
@@ -546,6 +573,8 @@ export default function App() {
         fetchUserProfile(user.uid, user);
       } else {
         setCurrentUser(null);
+        setIsLoggedIn(false);
+        localStorage.removeItem('smart_ads_logged_in');
       }
     });
     return () => unsubscribe();
@@ -641,8 +670,23 @@ export default function App() {
   const handleLogin = async (e?: React.FormEvent) => {
     e?.preventDefault();
     try {
-      await signInWithGoogle();
-      // Auth state listener will handle the rest
+      if (!loginEmail.trim()) {
+        setChatNotification('Por favor, ingresa tu correo electrónico.');
+        return;
+      }
+
+      // 1. Sign out any existing session first to ensure a totally fresh login context in case of pre-existing session pollution.
+      await signOut(auth);
+
+      // 2. Configure Google Auth provider with typed email as login hint and force selection/permissions popup
+      googleProvider.setCustomParameters({
+        prompt: 'select_account',
+        login_hint: loginEmail.trim()
+      });
+
+      // 3. Initiate actual Google sign-in
+      await signInWithPopup(auth, googleProvider);
+      // The onAuthStateChanged observer will auto-handle user profile fetching & state setting
     } catch (error: any) {
       if (error.code === 'auth/popup-closed-by-user') {
         console.log("El usuario cerró la ventana de autenticación.");
@@ -658,14 +702,7 @@ export default function App() {
         return;
       }
 
-      // Fallback for simulation if needed (only if they typed an email)
-      if (loginEmail && !loginEmail.includes('google.com')) {
-        setIsLoggedIn(true);
-        localStorage.setItem('smart_ads_logged_in', 'true');
-        setChatNotification('Aviso: Has ingresado en modo simulación local porque la conexión con Google falló.');
-      } else {
-        setChatNotification('Error al iniciar sesión. Por favor, verifica tu conexión.');
-      }
+      setChatNotification('Error al iniciar de sesión con Google. Por favor, verifica tu conexión.');
     }
   };
 
@@ -673,7 +710,6 @@ export default function App() {
     await signOut(auth);
     setIsLoggedIn(false);
     setCurrentUser(null);
-    setMetaToken(null);
     localStorage.removeItem('smart_ads_logged_in');
   };
 
@@ -682,7 +718,7 @@ export default function App() {
       const userRef = doc(db, 'users', userId);
       const userDoc = await getDoc(userRef);
       if (userDoc.exists()) {
-        const data = userDoc.data() as UserProfile & { credits?: number };
+        const data = userDoc.data() as UserProfile & { credits?: number, metaToken?: string | null };
         
         let fetchedCredits = data.credits ?? 0;
         if (firebaseUser.email === 'smartdigitalexperience@gmail.com') {
@@ -694,6 +730,41 @@ export default function App() {
           ...data,
           multiVariantEnabled: data.multiVariantEnabled !== undefined ? data.multiVariantEnabled : true
         });
+
+        // Restore Meta connection if saved in user's profile and active
+        if (data.metaToken) {
+          setMetaToken(data.metaToken);
+          localStorage.setItem('meta_access_token', data.metaToken);
+          try {
+            const accounts = await getAdAccounts(data.metaToken);
+            const pgs = await getPages(data.metaToken);
+            setAdAccounts(accounts);
+            setPages(pgs);
+            
+            const savedAdAccount = localStorage.getItem('meta_selected_ad_account');
+            const savedPage = localStorage.getItem('meta_selected_page');
+
+            if (savedAdAccount && accounts.some(acc => acc.id === savedAdAccount)) {
+              setSelectedAdAccount(savedAdAccount);
+            } else if (accounts.length > 0) {
+              setSelectedAdAccount(accounts[0].id);
+            }
+
+            if (savedPage && pgs.some(p => p.id === savedPage)) {
+              setSelectedPage(savedPage);
+            } else if (pgs.length > 0) {
+              setSelectedPage(pgs[0].id);
+            }
+          } catch (err) {
+            console.error("Error restoring Meta token fetch:", err);
+            // If token is invalid or expired, clear it safely
+            if (String(err).includes('Session has expired') || String(err).includes('session') || String(err).includes('token')) {
+              localStorage.removeItem('meta_access_token');
+              setMetaToken(null);
+              await setDoc(userRef, { metaToken: null }, { merge: true });
+            }
+          }
+        }
       } else {
         const initialCredits = firebaseUser.email === 'smartdigitalexperience@gmail.com' ? -1 : 60;
         await setDoc(userRef, {
@@ -751,7 +822,7 @@ export default function App() {
       await setDoc(doc(db, 'users', currentUser.uid), {
         ...userProfile,
         updatedAt: serverTimestamp()
-      });
+      }, { merge: true });
       setShowProfile(false);
       setChatNotification('Perfil actualizado correctamente.');
     } catch (error) {
@@ -783,14 +854,38 @@ export default function App() {
       localStorage.setItem('smart_ads_logged_in', 'true');
       localStorage.setItem('meta_access_token', token); // Persist token for reloads
       
+      const activeUser = auth.currentUser;
+      if (activeUser) {
+        try {
+          await setDoc(doc(db, 'users', activeUser.uid), {
+            metaToken: token
+          }, { merge: true });
+        } catch (dbErr) {
+          console.error("Error saving metaToken to Firestore:", dbErr);
+        }
+      }
+
       try {
         setChatNotification('¡Conexión con Meta sincronizada!');
         const accounts = await getAdAccounts(token);
         const pgs = await getPages(token);
         setAdAccounts(accounts);
         setPages(pgs);
-        if (accounts.length > 0) setSelectedAdAccount(accounts[0].id);
-        if (pgs.length > 0) setSelectedPage(pgs[0].id);
+        
+        const savedAdAccount = localStorage.getItem('meta_selected_ad_account');
+        const savedPage = localStorage.getItem('meta_selected_page');
+
+        if (savedAdAccount && accounts.some(acc => acc.id === savedAdAccount)) {
+          setSelectedAdAccount(savedAdAccount);
+        } else if (accounts.length > 0) {
+          setSelectedAdAccount(accounts[0].id);
+        }
+
+        if (savedPage && pgs.some(p => p.id === savedPage)) {
+          setSelectedPage(savedPage);
+        } else if (pgs.length > 0) {
+          setSelectedPage(pgs[0].id);
+        }
       } catch (err) {
         console.error("Error fetching Meta data:", err);
       }
@@ -5578,6 +5673,10 @@ export default function App() {
                           setMetaToken(null);
                           setAdAccounts([]);
                           setPages([]);
+                          localStorage.removeItem('meta_access_token');
+                          if (currentUser) {
+                            setDoc(doc(db, 'users', currentUser.uid), { metaToken: null }, { merge: true });
+                          }
                         } else {
                           handleMetaLogin();
                         }

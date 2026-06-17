@@ -733,6 +733,140 @@ async function startServer() {
     }
   });
 
+  // Temporary storage for Tripo images
+  const tempImages = new Map<string, { buffer: Buffer; mimeType: string; expires: number }>();
+
+  // Serving path for hosted temp images
+  app.get("/api/temp-tripo-image/:id", (req, res) => {
+    const id = req.params.id;
+    const item = tempImages.get(id);
+    if (!item || item.expires < Date.now()) {
+      return res.status(404).send("Imagen de referencia no encontrada o expirada.");
+    }
+    res.setHeader("Content-Type", item.mimeType);
+    res.send(item.buffer);
+  });
+
+  // Tripo 3D Integration Endpoints
+  app.post("/api/tripo/generate", async (req, res) => {
+    try {
+      const { imageBase64, mimeType, tripoApiKey } = req.body;
+      const apiKey = tripoApiKey?.trim() || process.env.TRIPO_API_KEY?.trim();
+      
+      if (!apiKey) {
+        return res.status(400).json({ 
+          error: "Clave API de Tripo 3D no configurada. Por favor introduce tu Clave API o agrégala como secreto de servidor TRIPO_API_KEY." 
+        });
+      }
+
+      if (!imageBase64) {
+        return res.status(400).json({ error: "Falta la imagen base64 para modelar." });
+      }
+
+      const cleanBase64 = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+      const buffer = Buffer.from(cleanBase64, 'base64');
+      const cleanMimeType = mimeType || 'image/png';
+      const fileExt = cleanMimeType.includes('jpeg') || cleanMimeType.includes('jpg') ? 'jpg' : 'png';
+
+      // Clean up old temp images to prevent memory leaks
+      const now = Date.now();
+      for (const [key, val] of tempImages.entries()) {
+        if (val.expires < now) {
+          tempImages.delete(key);
+        }
+      }
+
+      // 1. Store image locally and expose via a secure public temp URL 
+      const imageId = Math.random().toString(36).substring(2, 15) + "_" + Date.now();
+      tempImages.set(imageId, {
+        buffer,
+        mimeType: cleanMimeType,
+        expires: Date.now() + 30 * 60 * 1000 // Expires in 30 minutes
+      });
+
+      let protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+      if (Array.isArray(protocol)) {
+        protocol = protocol[0];
+      }
+      const host = req.get('host') || "";
+      if (!host.includes("localhost") && !host.includes("127.0.0.1")) {
+        protocol = "https";
+      }
+      const tempImageUrl = `${protocol}://${host}/api/temp-tripo-image/${imageId}`;
+
+      console.log("[Tripo Proxy] Hosted temporary image URL for task:", tempImageUrl);
+
+      // 2. Submit task directly to Tripo using the public URL
+      console.log("[Tripo Proxy] Triggering image_to_3d with URL");
+      const taskRes = await fetch("https://api.tripo3d.ai/v1/task", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          type: "image_to_3d",
+          file: {
+            type: fileExt,
+            url: tempImageUrl
+          }
+        })
+      });
+
+      if (!taskRes.ok) {
+        const errText = await taskRes.text();
+        console.error("[Tripo Proxy] Task trigger failed:", taskRes.status, errText);
+        return res.status(taskRes.status).json({ error: `Fallo al generar tarea de Tripo: ${taskRes.status} - ${errText}` });
+      }
+
+      const taskResult = await taskRes.json();
+      if (taskResult.code !== 0 || !taskResult.data?.task_id) {
+        console.error("[Tripo Proxy] Task creation rejected:", taskResult);
+        return res.status(400).json({ error: taskResult.msg || "No se obtuvo ID de la tarea de modelado en Tripo." });
+      }
+
+      res.json({
+        success: true,
+        taskId: taskResult.data.task_id
+      });
+    } catch (e: any) {
+      console.error("[Tripo Proxy] Exception:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/tripo/status", async (req, res) => {
+    try {
+      const { taskId, tripoApiKey } = req.body;
+      const apiKey = tripoApiKey?.trim() || process.env.TRIPO_API_KEY?.trim();
+
+      if (!apiKey) {
+        return res.status(400).json({ error: "Falta la clave API de Tripo 3D." });
+      }
+      if (!taskId) {
+        return res.status(400).json({ error: "Falta el ID de la tarea de Tripo 3D." });
+      }
+
+      const statusRes = await fetch(`https://api.tripo3d.ai/v1/task/${taskId}`, {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`
+        }
+      });
+
+      if (!statusRes.ok) {
+        const errText = await statusRes.text();
+        return res.status(statusRes.status).json({ error: `Fallo al pedir status en Tripo: ${statusRes.status} - ${errText}` });
+      }
+
+      const statusResult = await statusRes.json();
+      res.json(statusResult);
+    } catch (e: any) {
+      console.error("[Tripo Proxy Status] Exception:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.post("/api/generate-video-start", async (req, res) => {
     try {
       const { prompt, aspectRatio, duration, visualBase64, visualMimeType } = req.body;

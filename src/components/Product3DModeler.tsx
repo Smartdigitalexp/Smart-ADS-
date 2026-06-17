@@ -89,7 +89,9 @@ export function Product3DModeler({
 
   // Sync initialImage visual reference when it updates in parent
   useEffect(() => {
-    // Isolated localImage behavior - no automatic reference image attachment
+    if (initialImage) {
+      setLocalImage(initialImage);
+    }
     setVolumeType('card_pbr');
     setMeshThickness(10);
   }, [initialImage]);
@@ -228,6 +230,146 @@ export function Product3DModeler({
     } finally {
       setIsStudioProcessing(false);
     }
+  };
+
+  // Tripo 3D state
+  const [tripoApiKey, setTripoApiKey] = useState<string>(() => {
+    return localStorage.getItem('product_tripo_api_key') || '';
+  });
+  const [isTripoProcessing, setIsTripoProcessing] = useState<boolean>(false);
+  const [tripoProgress, setTripoProgress] = useState<number>(0);
+  const [tripoTaskId, setTripoTaskId] = useState<string | null>(null);
+  const [tripoGlbUrl, setTripoGlbUrl] = useState<string | null>(null);
+  const [tripoPreviewUrl, setTripoPreviewUrl] = useState<string | null>(null);
+  const [tripoError, setTripoError] = useState<string | null>(null);
+  const [showKeyField, setShowKeyField] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (tripoApiKey) {
+      localStorage.setItem('product_tripo_api_key', tripoApiKey);
+    }
+  }, [tripoApiKey]);
+
+  const handleGenerateTripo3D = async () => {
+    if (!localImage) {
+      setTripoError("Por favor, selecciona o sube una imagen primero.");
+      return;
+    }
+    
+    setTripoError(null);
+    setIsTripoProcessing(true);
+    setTripoProgress(5);
+    setStatusMessage("Subiendo imagen y creando tarea en Tripo 3D...");
+
+    try {
+      const response = await fetch("/api/tripo/generate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          imageBase64: localImage,
+          tripoApiKey: tripoApiKey || undefined
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Fallo al iniciar el modelado en Tripo.");
+      }
+
+      const taskId = data.taskId;
+      setTripoTaskId(taskId);
+      setTripoProgress(20);
+      setStatusMessage("Generando modelo 3D en las GPU de Tripo AI...");
+
+      // Start Polling until complete
+      pollTripoTaskId(taskId);
+
+    } catch (err: any) {
+      console.error(err);
+      setTripoError(err.message || "Error al conectar con el de Tripo.");
+      setIsTripoProcessing(false);
+      setTripoProgress(0);
+      setStatusMessage("Error en Tripo 3D.");
+    }
+  };
+
+  const pollTripoTaskId = (taskId: string) => {
+    let attempts = 0;
+    const interval = setInterval(async () => {
+      attempts++;
+      if (attempts > 60) { // Limit to 3 minutes
+        clearInterval(interval);
+        setTripoError("Se superó el tiempo de espera. Revisa el estado en tu cuenta de Tripo.");
+        setIsTripoProcessing(false);
+        setTripoProgress(0);
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/tripo/status", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            taskId,
+            tripoApiKey: tripoApiKey || undefined
+          })
+        });
+
+        const statusData = await res.json();
+
+        if (!res.ok) {
+          clearInterval(interval);
+          throw new Error(statusData.error || "Fallo de consulta de estado.");
+        }
+
+        if (statusData.code !== 0) {
+          clearInterval(interval);
+          throw new Error(statusData.msg || "La API de Tripo devolvió un error.");
+        }
+
+        const task = statusData.data;
+        const status = task.status;
+        const progress = task.progress || 0;
+
+        setTripoProgress(Math.max(20, Math.min(progress, 95)));
+        setStatusMessage(`Modelando: ${progress}% (${status === 'queuing' ? 'En cola' : 'Procesando'})`);
+
+        if (status === "success") {
+          clearInterval(interval);
+          setTripoProgress(100);
+          
+          const glb = task.output?.glb || task.output?.model;
+          const preview = task.output?.rendered_image;
+
+          setTripoGlbUrl(glb || null);
+          setTripoPreviewUrl(preview || null);
+          setIsTripoProcessing(false);
+          setStatusMessage("¡Malla AI 3D creada de forma súper exitosa!");
+          
+          if (preview) {
+            setLocalImage(preview);
+            onPreviewCreated(preview);
+          }
+        } else if (status === "failed") {
+          clearInterval(interval);
+          setTripoError("Fallo en el servidor de Tripo 3D al procesar el objeto.");
+          setIsTripoProcessing(false);
+          setTripoProgress(0);
+        }
+
+      } catch (err: any) {
+        console.error(err);
+        clearInterval(interval);
+        setTripoError(err.message || "Error al sincronizar con Tripo.");
+        setIsTripoProcessing(false);
+        setTripoProgress(0);
+      }
+    }, 3000); // Poll every 3 seconds
   };
 
   // Initialize and run Three.js Interactive Scene
@@ -818,6 +960,92 @@ export function Product3DModeler({
               </div>
             </div>
           )}
+        </div>
+
+        {/* Tripo 3D Dynamic Generative Card */}
+        <div className="p-5 rounded-2xl bg-black/40 border border-white/5 space-y-4">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-white/50 uppercase tracking-[0.2em] font-black flex items-center gap-1.5">
+              <Sparkles className="text-purple-400" size={14} /> 2. Convierte tu producto en 3D
+            </span>
+          </div>
+
+          <div className="text-[10px] text-white/50 leading-relaxed uppercase space-y-3">
+            <p className="text-[9px] text-white/60 lowercase first-letter:uppercase leading-normal">
+              Genera una malla real tridimensional completa (.glb) con texturas integradas, sombras y mapa UV usando redes neuronales avanzadas.
+            </p>
+
+            {localImage ? (
+              <div className="space-y-3">
+                {isTripoProcessing ? (
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center text-[8px] font-bold text-purple-400 uppercase tracking-widest">
+                      <span>Procesando Malla Generativa</span>
+                      <span>{tripoProgress}%</span>
+                    </div>
+                    <div className="w-full bg-white/5 h-2 rounded-full overflow-hidden border border-white/5">
+                      <div 
+                        className="bg-gradient-to-r from-purple-500 to-neon-blue h-full transition-all duration-300"
+                        style={{ width: `${tripoProgress}%` }}
+                      />
+                    </div>
+                    <p className="text-[8px] text-white/40 text-center animate-pulse">Por favor, espera unos instantes...</p>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleGenerateTripo3D}
+                    className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-[9.5px] font-black uppercase tracking-wider transition-all hover:scale-105 hover:shadow-[0_0_15px_rgba(147,51,234,0.3)] border border-purple-400/20 flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Cpu className="animate-pulse" size={12} />
+                    <span>GENERAR MODELO AI</span>
+                  </button>
+                )}
+
+                {tripoError && (
+                  <div className="text-[8.5px] text-rose-400 bg-rose-500/5 p-2.5 border border-rose-500/15 rounded-lg font-mono">
+                     ❌ Error: {tripoError}
+                  </div>
+                )}
+
+                {tripoGlbUrl && (
+                  <div className="space-y-2 bg-purple-500/5 p-3 border border-purple-500/10 rounded-xl">
+                    <div className="text-[9px] text-purple-400 font-bold uppercase tracking-wider">
+                      ✨ Modelo 3D Listo:
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <a
+                        href={tripoGlbUrl}
+                        download={`${productName.toLowerCase().replace(/\s+/g, "_")}_tripo.glb`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-[8px] font-black uppercase tracking-wider text-center flex items-center justify-center gap-1"
+                      >
+                        <Download size={10} /> Descargar GLB
+                      </a>
+                      {tripoPreviewUrl && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLocalImage(tripoPreviewUrl);
+                            onPreviewCreated(tripoPreviewUrl);
+                            setStatusMessage("Cargado preview de Tripo como textura activa.");
+                          }}
+                          className="py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white text-[8px] font-bold uppercase text-center flex items-center justify-center gap-1 border border-white/5"
+                        >
+                          Usar Render
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-[8px] text-white/30 text-center uppercase py-2">
+                ⚠️ Carga una imagen para habilitar la generación real AI 3D.
+              </p>
+            )}
+          </div>
         </div>
       </div>
 

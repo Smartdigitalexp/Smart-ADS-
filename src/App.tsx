@@ -5107,14 +5107,14 @@ export default function App() {
                   { amount: 1000, price: 100, popular: true, link: 'https://checkout.bold.co/payment/LNK_MX4PJZWPYL' },
                   { amount: 3000, price: 200, link: 'https://checkout.bold.co/payment/LNK_NGC8B65ZUN' },
                   { amount: 5000, price: 300, link: 'https://checkout.bold.co/payment/LNK_HKZ97SLIDZ' },
-                  { amount: 'unlimited', price: 500, label: 'ILIMITADO', link: 'https://checkout.bold.co/payment/LNK_MNX0HXPWH5' }
+                  { amount: 10000, price: 500, label: '10000', link: 'https://checkout.bold.co/payment/LNK_MNX0HXPWH5' }
                 ].map((pkg) => (
                   <div 
                     key={pkg.amount}
                     className={cn(
                       "glass-panel p-6 flex flex-col items-center text-center gap-4 relative group cursor-pointer hover:border-neon-blue/60 transition-all",
                       pkg.popular && "border-neon-green/40 bg-neon-green/5",
-                      pkg.amount === 'unlimited' && "sm:col-span-2 lg:col-span-1 border-neon-blue/40 bg-neon-blue/5"
+                      pkg.amount === 10000 && "sm:col-span-2 lg:col-span-1 border-neon-blue/40 bg-neon-blue/5"
                     )}
                     onClick={() => handleRecharge(pkg)}
                   >
@@ -5126,12 +5126,12 @@ export default function App() {
                     <div className="space-y-1">
                       <span className={cn(
                         "font-orbitron font-black text-white group-hover:neon-text transition-all",
-                        pkg.amount === 'unlimited' ? "text-2xl" : "text-3xl"
+                        pkg.amount === 10000 ? "text-2xl" : "text-3xl"
                       )}>
                         {pkg.label || pkg.amount}
                       </span>
                       <p className="text-[10px] text-white/40 uppercase font-bold tracking-widest">
-                        {pkg.amount === 'unlimited' ? 'Acceso Total' : 'Créditos'}
+                        Créditos
                       </p>
                     </div>
                     <div className="h-px w-full bg-white/10" />

@@ -798,17 +798,17 @@ async function startServer() {
 
       // 2. Submit task directly to Tripo using the public URL
       console.log("[Tripo Proxy] Triggering image_to_3d with URL");
-      const taskRes = await fetch("https://api.tripo3d.ai/v1/task", {
+      const taskRes = await fetch("https://api.tripo3d.ai/v2/openapi/task", {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${apiKey}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          type: "image_to_3d",
+          type: "image_to_model",
           file: {
             type: fileExt,
-            url: tempImageUrl
+            file_token: tempImageUrl
           }
         })
       });
@@ -847,7 +847,7 @@ async function startServer() {
         return res.status(400).json({ error: "Falta el ID de la tarea de Tripo 3D." });
       }
 
-      const statusRes = await fetch(`https://api.tripo3d.ai/v1/task/${taskId}`, {
+      const statusRes = await fetch(`https://api.tripo3d.ai/v2/openapi/task/${taskId}`, {
         method: "GET",
         headers: {
           "Authorization": `Bearer ${apiKey}`

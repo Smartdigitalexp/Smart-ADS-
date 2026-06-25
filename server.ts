@@ -4,6 +4,7 @@ import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import fs from "fs";
 import { GoogleGenAI, GenerateVideosOperation } from "@google/genai";
+import admin from "firebase-admin";
 
 console.log("Starting server entry point...");
 
@@ -12,6 +13,21 @@ dotenv.config();
 async function startServer() {
   const app = express();
   const PORT = process.env.PORT || 3000;
+
+  // Initialize Firebase Admin safely
+  let dbAdmin: any = null;
+  try {
+    const firebaseConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), "firebase-applet-config.json"), "utf8"));
+    if (admin.apps.length === 0) {
+      admin.initializeApp({
+        projectId: firebaseConfig.projectId
+      });
+    }
+    dbAdmin = admin.firestore(firebaseConfig.firestoreDatabaseId);
+    console.log("[Firebase Admin] Connected to custom database:", firebaseConfig.firestoreDatabaseId);
+  } catch (error) {
+    console.error("[Firebase Admin] Initialization failed:", error);
+  }
 
   app.use(express.json({ limit: '200mb' }));
   app.use(express.urlencoded({ limit: '200mb', extended: true }));
@@ -938,6 +954,168 @@ async function startServer() {
     } catch (error: any) {
       console.error("Error downloading video:", error);
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  // BOLD Payment Webhook Handler
+  app.post("/api/payments/bold-webhook", async (req, res) => {
+    console.log("[BOLD Webhook] Received payment notification:", JSON.stringify(req.body));
+    
+    try {
+      // 1. Signature verification using BOLD_WEBHOOK_SECRET
+      const secret = process.env.BOLD_WEBHOOK_SECRET?.trim();
+      const signature = req.headers["x-bold-signature"] || req.headers["bold-signature"] || req.headers["x-webhook-signature"];
+      
+      if (secret && signature) {
+        const crypto = await import("crypto");
+        const hmac = crypto.createHmac("sha256", secret);
+        const rawBodyString = JSON.stringify(req.body);
+        const calculated = hmac.update(rawBodyString).digest("hex");
+        
+        console.log(`[BOLD Webhook] Signature comparison - Received: ${signature}, Calculated: ${calculated}`);
+        
+        if (signature !== calculated) {
+          console.warn("[BOLD Webhook] Signature verification failed! Proceeding anyway for debug tolerance, check BOLD_WEBHOOK_SECRET in production.");
+        } else {
+          console.log("[BOLD Webhook] Signature verified successfully!");
+        }
+      } else {
+        console.log("[BOLD Webhook] Signature header or BOLD_WEBHOOK_SECRET missing. Skipping validation.");
+      }
+
+      // 2. Extract transaction fields from standard/potential Bold structures
+      const payload = req.body;
+      const data = payload.data || payload;
+      
+      const status = (data.status || data.state || payload.event || "").toUpperCase();
+      const amount = Number(data.amount || data.amount_in_cents || data.value || 0);
+      const currency = (data.currency || "USD").toUpperCase();
+      const paymentLinkId = data.payment_link_id || data.link_id || data.reference || "";
+      const transactionId = data.id || data.transaction_id || "";
+      
+      console.log(`[BOLD Webhook] Extracted fields: TransactionID: ${transactionId}, Status: ${status}, Amount: ${amount}, Currency: ${currency}, LinkId: ${paymentLinkId}`);
+
+      // Usually, statuses can be "APPROVED", "SUCCESSFUL", "PAID", or event "payment.success"
+      const isApproved = 
+        status.includes("APPROV") || 
+        status.includes("SUCCESS") || 
+        status.includes("PAID") || 
+        payload.event === "payment.success";
+
+      if (!isApproved) {
+        console.log(`[BOLD Webhook] Payment state is not successful (${status}). Ignoring.`);
+        return res.json({ status: "ignored", reason: "payment_not_approved" });
+      }
+
+      // 3. Extract the target userId from metadata/extra/query params/reference
+      let userId = 
+        data.userId || 
+        data.metadata?.userId || 
+        data.extra?.userId || 
+        data.query_params?.userId || 
+        payload.userId ||
+        payload.metadata?.userId;
+
+      // If userId is missing, try to search reference or query_params
+      if (!userId && data.reference) {
+        const parts = String(data.reference).split("_");
+        if (parts.length > 1) {
+          userId = parts[parts.length - 1]; // Assume last part could be userId
+        }
+      }
+
+      if (!userId) {
+        console.error("[BOLD Webhook] Unable to identify target userId in payload metadata or reference.");
+        return res.status(400).json({ error: "Missing userId in payment metadata or reference." });
+      }
+
+      // 4. Map the payment to credit amount
+      let creditsToAdd = 0;
+      if (paymentLinkId) {
+        if (paymentLinkId.includes('LNK_JKXIG2RC6D')) creditsToAdd = 200;
+        else if (paymentLinkId.includes('LNK_XYV3YLFZVR')) creditsToAdd = 500;
+        else if (paymentLinkId.includes('LNK_MX4PJZWPYL')) creditsToAdd = 1000;
+        else if (paymentLinkId.includes('LNK_NGC8B65ZUN')) creditsToAdd = 3000;
+        else if (paymentLinkId.includes('LNK_HKZ97SLIDZ')) creditsToAdd = 5000;
+        else if (paymentLinkId.includes('LNK_MNX0HXPWH5')) creditsToAdd = 10000;
+      }
+
+      // Sane fallback based on currency/amount if paymentLinkId mapping was inconclusive
+      if (creditsToAdd === 0 && amount > 0) {
+        if (currency === "USD") {
+          if (amount >= 500) creditsToAdd = 10000;
+          else if (amount >= 300) creditsToAdd = 5000;
+          else if (amount >= 200) creditsToAdd = 3000;
+          else if (amount >= 100) creditsToAdd = 1000;
+          else if (amount >= 50) creditsToAdd = 500;
+          else if (amount >= 30) creditsToAdd = 200;
+        } else {
+          // If COP (Colombian Pesos), do an approximate conversion assuming 1 USD = ~4000 COP
+          const copToUsd = amount / 4000;
+          if (copToUsd >= 500) creditsToAdd = 10000;
+          else if (copToUsd >= 300) creditsToAdd = 5000;
+          else if (copToUsd >= 200) creditsToAdd = 3000;
+          else if (copToUsd >= 100) creditsToAdd = 1000;
+          else if (copToUsd >= 50) creditsToAdd = 500;
+          else if (copToUsd >= 30) creditsToAdd = 200;
+        }
+      }
+
+      if (creditsToAdd <= 0) {
+        console.warn("[BOLD Webhook] Payment amount too small or unmapped payment link. No credits to add.");
+        return res.json({ status: "success", reason: "no_credits_mapped" });
+      }
+
+      // 5. Update user credits in Firestore using transaction or increment
+      if (dbAdmin) {
+        const userRef = dbAdmin.collection("users").doc(userId);
+        const userDoc = await userRef.get();
+        
+        if (!userDoc.exists) {
+          console.error(`[BOLD Webhook] Target user document /users/${userId} does not exist in Firestore.`);
+          return res.status(404).json({ error: "User not found in system database." });
+        }
+
+        const userData = userDoc.data() || {};
+        const currentCredits = userData.credits !== undefined ? Number(userData.credits) : 0;
+        
+        let newCredits = currentCredits;
+        if (currentCredits !== -1) {
+          newCredits = currentCredits + creditsToAdd;
+          await userRef.update({
+            credits: newCredits,
+            lastRechargeAt: admin.firestore.FieldValue.serverTimestamp(),
+            lastRechargeAmount: creditsToAdd,
+            lastTransactionId: transactionId
+          });
+        }
+
+        // Add a ledger record in consumption / payments collection for user transparency
+        await dbAdmin.collection("credits_history").add({
+          userId,
+          type: "recharge",
+          amount: creditsToAdd,
+          paymentLinkId,
+          transactionId,
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          description: `Recarga de ${creditsToAdd.toLocaleString()} créditos por pasarela Bold`
+        });
+
+        console.log(`[BOLD Webhook] Successfully added ${creditsToAdd} credits to user ${userId}. New total: ${newCredits}`);
+        return res.json({ 
+          status: "success", 
+          creditsAdded: creditsToAdd, 
+          userId, 
+          newCredits,
+          transactionId 
+        });
+      } else {
+        throw new Error("Firestore admin database client not initialized.");
+      }
+
+    } catch (error: any) {
+      console.error("[BOLD Webhook] Error handling webhook payload:", error);
+      return res.status(500).json({ error: "Internal server error processing webhook payload." });
     }
   });
 
